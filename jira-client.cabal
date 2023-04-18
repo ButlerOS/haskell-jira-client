@@ -1,0 +1,120 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.35.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           jira-client
+version:        0.1
+synopsis:       A Jira client library
+description:    jira-client is a library to interface with https://www.atlassian.com/software/jira.
+                .
+                Use this library to query and post to Jira REST API.
+                .
+category:       Development
+homepage:       https://github.com/ButlerOS/haskell-jira-client#readme
+bug-reports:    https://github.com/ButlerOS/haskell-jira-client/issues
+author:         Tristan Cacqueray
+maintainer:     tdecacqu@redhat.com
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    test/data/jiraissue.json
+    test/data/jirasearch.json
+
+source-repository head
+  type: git
+  location: https://github.com/ButlerOS/haskell-jira-client
+
+library
+  exposed-modules:
+      Jira
+  other-modules:
+      Paths_jira_client
+  hs-source-dirs:
+      src
+  default-extensions:
+      OverloadedStrings
+      NamedFieldPuns
+      ImportQualifiedPost
+      LambdaCase
+      ViewPatterns
+      MultiWayIf
+      QuasiQuotes
+      DeriveGeneric
+      DerivingVia
+      GeneralizedNewtypeDeriving
+      DuplicateRecordFields
+      RecordWildCards
+      OverloadedStrings
+      OverloadedRecordDot
+      TemplateHaskell
+      DataKinds
+      DeriveAnyClass
+      TypeFamilies
+      BlockArguments
+      OverloadedLabels
+      DerivingStrategies
+      PartialTypeSignatures
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns -Wno-partial-type-signatures -fwrite-ide-info -Wno-missing-methods
+  build-depends:
+      aeson
+    , base <5
+    , bytestring
+    , http-client
+    , lens
+    , lens-aeson
+    , text
+    , time
+    , witch
+  default-language: GHC2021
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_jira_client
+  hs-source-dirs:
+      test
+  default-extensions:
+      OverloadedStrings
+      NamedFieldPuns
+      ImportQualifiedPost
+      LambdaCase
+      ViewPatterns
+      MultiWayIf
+      QuasiQuotes
+      DeriveGeneric
+      DerivingVia
+      GeneralizedNewtypeDeriving
+      DuplicateRecordFields
+      RecordWildCards
+      OverloadedStrings
+      OverloadedRecordDot
+      TemplateHaskell
+      DataKinds
+      DeriveAnyClass
+      TypeFamilies
+      BlockArguments
+      OverloadedLabels
+      DerivingStrategies
+      PartialTypeSignatures
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns -Wno-partial-type-signatures -fwrite-ide-info -Wno-missing-methods -threaded -rtsopts -with-rtsopts=-T
+  build-depends:
+      aeson
+    , base <5
+    , bytestring
+    , http-client
+    , http-mock
+    , http-types
+    , jira-client
+    , lens
+    , lens-aeson
+    , tasty
+    , tasty-hunit
+    , text
+    , time
+    , wai
+    , witch
+  default-language: GHC2021
