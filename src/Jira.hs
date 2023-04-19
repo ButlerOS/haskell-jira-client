@@ -5,6 +5,7 @@ module Jira (
 
     -- * Issue API
     getIssue,
+    setIssueScore,
     JiraID,
     JiraIssue (..),
 
@@ -19,6 +20,7 @@ import Control.Lens (toListOf, (^?))
 import Data.Aeson
 import Data.Aeson.Lens
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -28,26 +30,36 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import GHC.Exts (fromList)
 import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
-import Witch (from)
+import Witch (From, from)
 
+-- Check api doc at:
+-- https://developer.atlassian.com/server/jira/platform/jira-rest-api-examples/
 data JiraClient = JiraClient
     { manager :: HTTP.Manager
     , baseUrl :: Text
     , token :: ByteString
+    , issueScoreKey :: Key
     }
 
-newJiraClient :: Text -> ByteString -> HTTP.Manager -> JiraClient
-newJiraClient url token manager = JiraClient{..}
+newJiraClient :: Text -> Maybe Key -> ByteString -> HTTP.Manager -> JiraClient
+newJiraClient url mIssueScoreKey token manager = JiraClient{..}
   where
+    issueScoreKey = fromMaybe "customfield_12310243" mIssueScoreKey
     baseUrl = T.dropWhileEnd (== '/') url <> "/rest/api/2/"
 
 httpJSONRequest :: HTTP.Manager -> HTTP.Request -> IO (Either Text Value)
-httpJSONRequest manager request =
-    either (Left . T.pack) Right . eitherDecode . HTTP.responseBody
-        <$> HTTP.httpLbs request manager
+httpJSONRequest manager request = do
+    responseBody <- HTTP.responseBody <$> HTTP.httpLbs request manager
+    pure $ case responseBody of
+        "" -> Right Null
+        _ -> case eitherDecode responseBody of
+            Left e -> Left (T.pack e)
+            Right v -> Right v
 
-jiraRequest :: JiraClient -> Text -> ByteString -> HTTP.RequestBody -> IO (Either Text Value)
-jiraRequest client path verb body = do
+newtype HttpVerb = HttpVerb ByteString deriving newtype (IsString)
+
+jiraRequest :: JiraClient -> Text -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
+jiraRequest client path (HttpVerb verb) body = do
     initRequest <- HTTP.parseUrlThrow (from $ client.baseUrl <> path)
     let request =
             initRequest
@@ -60,7 +72,11 @@ jiraRequest client path verb body = do
                 }
     httpJSONRequest client.manager request
 
-newtype JiraID = JiraID Text deriving newtype (ToJSON, IsString)
+issueRequest :: JiraClient -> JiraID -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
+issueRequest client (JiraID jid) = jiraRequest client ("issue/" <> jid)
+
+newtype JiraID = JiraID Text deriving newtype (Show, Eq, Ord, ToJSON, IsString)
+instance From JiraID Text where from (JiraID n) = n
 
 {- | Drop the extra milli second and timezone
 
@@ -72,34 +88,47 @@ parseJiraTime t = parseTimeM False defaultTimeLocale "%FT%T" (from $ T.takeWhile
 
 data JiraIssue = JiraIssue
     { project :: Text
-    , name :: Text
+    , name :: JiraID
     , issueType :: Text
     , updated :: UTCTime
     , description :: Maybe Text
     , summary :: Text
+    , score :: Maybe Float
     }
-    deriving (Generic, ToJSON)
+    deriving (Show, Generic, ToJSON)
 
-decodeIssue :: Value -> Either Text JiraIssue
-decodeIssue v = do
-    name <- (v ^? key "key" . _String) `pDie` "Can't find kid"
+decodeIssue :: JiraClient -> Value -> Either Text JiraIssue
+decodeIssue client v = do
+    name <- JiraID <$> (v ^? key "key" . _String) `pDie` "Can't find kid"
     fields <- (v ^? key "fields") `pDie` "Can't find fields"
     project <- (fields ^? key "project" . key "key" . _String) `pDie` "Can't find project.key"
     issueType <- (fields ^? key "issuetype" . key "name" . _String) `pDie` "Can't find issuetype.name"
     updated <- (parseJiraTime =<< fields ^? key "updated" . _String) `pDie` "Can't find updated"
     let description = fields ^? key "description" . _String
     summary <- (fields ^? key "summary" . _String) `pDie` "Can't find summary"
+    let score = fields ^? key client.issueScoreKey . _JSON
     pure JiraIssue{..}
   where
     pDie :: Maybe a -> Text -> Either Text a
     pDie a n = a `orDie` (n <> ": " <> decodeUtf8 (from $ encode v))
 
 getIssue :: JiraClient -> JiraID -> IO (Either Text JiraIssue)
-getIssue client (JiraID jid) = do
-    res <- jiraRequest client ("issue/" <> jid) "GET" mempty
+getIssue client jid = do
+    res <- issueRequest client jid "GET" mempty
     pure $ case res of
-        Left e -> Left (jid <> ": " <> from e)
-        Right x -> decodeIssue x
+        Left e -> Left (from jid <> ": " <> from e)
+        Right x -> decodeIssue client x
+
+setIssueScore :: JiraClient -> JiraID -> Float -> IO (Maybe Text)
+setIssueScore client jid score = do
+    res <- issueRequest client jid "PUT" (HTTP.RequestBodyLBS (encode body))
+    case res of
+        Left e -> pure $ Just e
+        Right x -> do
+            putStrLn $ "Got: " <> show x
+            pure Nothing
+  where
+    body = object ["fields" .= object [client.issueScoreKey .= score]]
 
 newtype JQL = JQL Text deriving newtype (IsString, Show)
 
@@ -108,7 +137,7 @@ data JiraIssueInfo = JiraIssueInfo
     , name :: Text
     , updated :: UTCTime
     }
-    deriving (Generic, ToJSON)
+    deriving (Show, Generic, ToJSON)
 
 decodeIssueInfo :: Value -> Either Text JiraIssueInfo
 decodeIssueInfo v = do
@@ -125,7 +154,7 @@ data JiraSearchResult = JiraSearchResult
     { total :: Word
     , issues :: [Either Text JiraIssueInfo]
     }
-    deriving (Generic)
+    deriving (Show, Generic)
 
 searchIssues :: JiraClient -> Word -> JQL -> IO (Either Text JiraSearchResult)
 searchIssues client start (JQL query) = do

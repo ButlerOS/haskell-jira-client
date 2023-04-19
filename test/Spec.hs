@@ -22,7 +22,7 @@ withMockClient cb = do
             "/rest/api/2/search" -> searchResp
             "/rest/api/2/issue/14825490" -> issueResp
             other -> error $ "Invalid path: " <> show other
-    withMockedManager app (cb . Jira.newJiraClient "http://localhost" "test-token")
+    withMockedManager app (cb . Jira.newJiraClient "http://localhost" Nothing "test-token")
 
 testGetIssues :: TestTree
 testGetIssues = testCase "getIssues" go
@@ -41,7 +41,8 @@ testGetIssue = testCase "getIssue" go
         Right issue <- Jira.getIssue client "14825490"
         issue.issueType @?= "Story"
         issue.project @?= "PROJECT"
-        issue.name @?= issue.name
+        issue.name @?= "PROJECT-1058"
+        issue.score @?= Just 5.0
 
 main :: IO ()
 main = defaultMain jiraClientTests

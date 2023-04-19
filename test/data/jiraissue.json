@@ -40,6 +40,7 @@
     "components": [],
     "description": "Issue description...",
     "summary": "Issue summary",
+    "customfield_12310243": 5.0,
     "creator": {
       "name": "jira-id",
       "key": "name",
