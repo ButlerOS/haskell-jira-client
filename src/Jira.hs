@@ -133,16 +133,14 @@ setIssueScore client jid score = do
 newtype JQL = JQL Text deriving newtype (IsString, Show)
 
 data JiraIssueInfo = JiraIssueInfo
-    { jid :: JiraID
-    , name :: Text
+    { name :: JiraID
     , updated :: UTCTime
     }
     deriving (Show, Generic, ToJSON)
 
 decodeIssueInfo :: Value -> Either Text JiraIssueInfo
 decodeIssueInfo v = do
-    jid <- (JiraID <$> v ^? key "id" . _String) `pDie` "Can't find id"
-    name <- (v ^? key "key" . _String) `pDie` "Can't find key"
+    name <- JiraID <$> (v ^? key "key" . _String) `pDie` "Can't find key"
     updatedString <- (v ^? key "fields" . key "updated" . _String) `pDie` "Can't find fields.updated"
     updated <- parseJiraTime updatedString `pDie` ("Can't parse date: " <> updatedString)
     pure (JiraIssueInfo{..})
