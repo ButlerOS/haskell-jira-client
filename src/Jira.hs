@@ -75,7 +75,7 @@ jiraRequest client path (HttpVerb verb) body = do
 issueRequest :: JiraClient -> JiraID -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
 issueRequest client (JiraID jid) = jiraRequest client ("issue/" <> jid)
 
-newtype JiraID = JiraID Text deriving newtype (Show, Eq, Ord, ToJSON, IsString)
+newtype JiraID = JiraID Text deriving newtype (Show, Eq, Ord, FromJSON, ToJSON, IsString)
 instance From JiraID Text where from (JiraID n) = n
 
 {- | Drop the extra milli second and timezone
@@ -99,7 +99,7 @@ data JiraIssue = JiraIssue
 
 decodeIssue :: JiraClient -> Value -> Either Text JiraIssue
 decodeIssue client v = do
-    name <- JiraID <$> (v ^? key "key" . _String) `pDie` "Can't find kid"
+    name <- (v ^? key "key" . _JSON) `pDie` "Can't find kid"
     fields <- (v ^? key "fields") `pDie` "Can't find fields"
     project <- (fields ^? key "project" . key "key" . _String) `pDie` "Can't find project.key"
     issueType <- (fields ^? key "issuetype" . key "name" . _String) `pDie` "Can't find issuetype.name"
@@ -122,11 +122,9 @@ getIssue client jid = do
 setIssueScore :: JiraClient -> JiraID -> Float -> IO (Maybe Text)
 setIssueScore client jid score = do
     res <- issueRequest client jid "PUT" (HTTP.RequestBodyLBS (encode body))
-    case res of
-        Left e -> pure $ Just e
-        Right x -> do
-            putStrLn $ "Got: " <> show x
-            pure Nothing
+    pure $ case res of
+        Left e -> Just e
+        Right _ -> Nothing
   where
     body = object ["fields" .= object [client.issueScoreKey .= score]]
 
