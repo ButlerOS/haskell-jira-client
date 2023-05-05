@@ -11,6 +11,8 @@ module Jira (
 
     -- * Search API
     searchIssues,
+    searchIssuesInfo,
+    JiraSearchRequest (..),
     JQL (..),
     JiraIssueInfo (..),
     JiraSearchResult (..),
@@ -146,19 +148,25 @@ decodeIssueInfo v = do
     pDie :: Maybe a -> Text -> Either Text a
     pDie a n = a `orDie` (n <> ": " <> decodeUtf8 (from $ encode v))
 
-data JiraSearchResult = JiraSearchResult
+data JiraSearchResult a = JiraSearchResult
     { total :: Word
-    , issues :: [Either Text JiraIssueInfo]
+    , issues :: [Either Text a]
     }
     deriving (Show, Generic)
 
-searchIssues :: JiraClient -> Word -> JQL -> IO (Either Text JiraSearchResult)
-searchIssues client start (JQL query) = do
+data JiraSearchRequest = JiraSearchRequest
+    { start :: Word
+    , maxResults :: Word
+    , query :: JQL
+    }
+
+searchIssuesImpl :: (Value -> Either Text a) -> [Value] -> JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult a))
+searchIssuesImpl decodeElem fields client (JiraSearchRequest start maxResults (JQL query)) = do
     let body =
             object
-                [ ("maxResults", Number 100)
+                [ ("maxResults", Number (fromIntegral maxResults))
                 , ("startAt", Number (fromIntegral start))
-                , ("fields", Array (fromList [String "updated"]))
+                , ("fields", Array (fromList $ String "updated" : fields))
                 , ("jql", String $ query <> " order by updated")
                 ]
 
@@ -168,7 +176,13 @@ searchIssues client start (JQL query) = do
         Right x -> case (x ^? key "total" . _JSON, toListOf (key "issues" . values) x) of
             (_, []) -> Left $ "Couldn't find issues: " <> from (show x)
             (Nothing, _) -> Left $ "Couldn't find total: " <> from (show x)
-            (Just total, issues) -> Right (JiraSearchResult total $ decodeIssueInfo <$> issues)
+            (Just total, issues) -> Right (JiraSearchResult total $ decodeElem <$> issues)
+
+searchIssuesInfo :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssueInfo))
+searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
+
+searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
+searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary"] client
 
 -- | From https://www.haskellforall.com/2021/05/the-trick-to-avoid-deeply-nested-error.html
 orDie :: Maybe a -> b -> Either b a

@@ -28,7 +28,7 @@ testGetIssues :: TestTree
 testGetIssues = testCase "getIssues" go
   where
     go = withMockClient $ \client -> do
-        Right searchResults <- Jira.searchIssues client 0 ""
+        Right searchResults <- Jira.searchIssuesInfo client (Jira.JiraSearchRequest 0 10 "")
         searchResults.total @?= 2
         let (err, infos) = partitionEithers searchResults.issues
         length err @?= 0
