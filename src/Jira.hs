@@ -21,6 +21,7 @@ module Jira (
 
 import Control.Lens (toListOf, (^?))
 import Data.Aeson
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.Lens
 import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
@@ -113,7 +114,11 @@ decodeIssue client v = do
     updated <- (parseJiraTime =<< fields ^? key "updated" . _String) `pDie` "Can't find updated"
     let description = fields ^? key "description" . _String
     summary <- (fields ^? key "summary" . _String) `pDie` "Can't find summary"
-    let score = fields ^? key client.issueScoreKey . _JSON
+    let score = do
+            scoreMaybeNan <- fields ^? key client.issueScoreKey . _JSON
+            if isNaN scoreMaybeNan
+                then Nothing
+                else pure scoreMaybeNan
     pure JiraIssue{..}
   where
     pDie :: Maybe a -> Text -> Either Text a
@@ -187,7 +192,7 @@ searchIssuesInfo :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSear
 searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
 
 searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
-searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary"] client
+searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String $ Key.toText client.issueScoreKey] client
 
 -- | From https://www.haskellforall.com/2021/05/the-trick-to-avoid-deeply-nested-error.html
 orDie :: Maybe a -> b -> Either b a
