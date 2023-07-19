@@ -8,6 +8,7 @@ module Jira (
     setIssueScore,
     JiraID,
     JiraIssue (..),
+    jiraUrl,
 
     -- * Search API
     searchIssues,
@@ -47,7 +48,7 @@ newJiraClient :: Text -> Maybe Key -> ByteString -> HTTP.Manager -> JiraClient
 newJiraClient url mIssueScoreKey token manager = JiraClient{..}
   where
     issueScoreKey = fromMaybe "customfield_12310243" mIssueScoreKey
-    baseUrl = T.dropWhileEnd (== '/') url <> "/rest/api/2/"
+    baseUrl = T.dropWhileEnd (== '/') url
 
 httpJSONRequest :: HTTP.Manager -> HTTP.Request -> IO (Either Text Value)
 httpJSONRequest manager request = do
@@ -62,7 +63,7 @@ newtype HttpVerb = HttpVerb ByteString deriving newtype (IsString)
 
 jiraRequest :: JiraClient -> Text -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
 jiraRequest client path (HttpVerb verb) body = do
-    initRequest <- HTTP.parseUrlThrow (from $ client.baseUrl <> path)
+    initRequest <- HTTP.parseUrlThrow (from $ client.baseUrl <> "/rest/api/2/" <> path)
     let request =
             initRequest
                 { HTTP.requestHeaders =
@@ -79,6 +80,10 @@ issueRequest client (JiraID jid) = jiraRequest client ("issue/" <> jid)
 
 newtype JiraID = JiraID Text deriving newtype (Show, Eq, Ord, FromJSON, ToJSON, IsString)
 instance From JiraID Text where from (JiraID n) = n
+
+-- | Get the url of a 'JiraID'
+jiraUrl :: JiraClient -> JiraID -> Text
+jiraUrl client (JiraID jid) = client.baseUrl <> "/browse/" <> jid
 
 {- | Drop the extra milli second and timezone
 
