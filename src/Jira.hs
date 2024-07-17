@@ -7,6 +7,7 @@ module Jira (
     getIssue,
     setIssueScore,
     JiraID,
+    mkJiraID,
     JiraIssue (..),
     jiraUrl,
 
@@ -34,6 +35,7 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import GHC.Exts (fromList)
 import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
+import Numeric.Natural (Natural)
 import Witch (From, from)
 
 -- Check api doc at:
@@ -81,6 +83,9 @@ issueRequest client (JiraID jid) = jiraRequest client ("issue/" <> jid)
 
 newtype JiraID = JiraID Text deriving newtype (Show, Eq, Ord, FromJSON, ToJSON, IsString)
 instance From JiraID Text where from (JiraID n) = n
+
+mkJiraID :: Text -> Natural -> JiraID
+mkJiraID name nr = JiraID $ name <> "-" <> from (show nr)
 
 -- | Get the url of a 'JiraID'
 jiraUrl :: JiraClient -> JiraID -> Text
