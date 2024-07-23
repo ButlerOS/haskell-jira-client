@@ -10,6 +10,7 @@
 
       haskellExtend = hpFinal: hpPrev: {
         jira-client = hpPrev.callCabal2nix "jira-client" self { };
+        md2jira = hpPrev.callCabal2nix "md2jira" "${self}/md2jira" { };
       };
       hsPkgs = pkgs.hspkgs.extend haskellExtend;
 
@@ -25,11 +26,11 @@
 
     in {
       devShells."x86_64-linux".ci = hsPkgs.shellFor {
-        packages = p: [ p.butler ];
+        packages = p: [ p.jira-client p.md2jira ];
         buildInputs = baseTools;
       };
       devShell."x86_64-linux" = hsPkgs.shellFor {
-        packages = p: [ p.jira-client ];
+        packages = p: [ p.jira-client p.md2jira];
         buildInputs = with pkgs;
           [
             ghcid

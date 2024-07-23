@@ -6,14 +6,14 @@ log() {
 
 log "Building"
 hpack
-cabal build -O0 --enable-tests --ghc-option=-Werror
+cabal build -O0 --enable-tests --ghc-option=-Werror all
 
 log "Testing"
 cabal test -O0 --test-show-details=direct
 cabal check
 
 log "Formatting"
-fourmolu -i src/ test/
+fourmolu -i src/ test/ md2jira/
 
 log "Linting"
 hlint .
