@@ -12,7 +12,7 @@ import Witch (from)
 import Jira qualified
 
 jiraClientTests :: TestTree
-jiraClientTests = testGroup "Lentille.Jira" [testGetIssues, testGetIssue]
+jiraClientTests = testGroup "Lentille.Jira" [testGetIssues, testGetIssue, testCreateIssue]
 
 withMockClient :: (Jira.JiraClient -> IO ()) -> IO ()
 withMockClient cb = do
@@ -21,8 +21,17 @@ withMockClient cb = do
     let app req respond = respond . Wai.responseLBS status200 mempty . from $ case Wai.rawPathInfo req of
             "/rest/api/2/search" -> searchResp
             "/rest/api/2/issue/14825490" -> issueResp
+            "/rest/api/2/issue/" -> "{\"key\": \"TEST-42\"}"
+            "/rest/api/2/issue/TEST-42" -> ""
             other -> error $ "Invalid path: " <> show other
     withMockedManager app (cb . Jira.newJiraClient "http://localhost" Nothing "test-token")
+
+testCreateIssue :: TestTree
+testCreateIssue = testCase "createIssue" go
+  where
+    go = withMockClient $ \client -> do
+        Right jid <- Jira.createIssue client "PROJ" Jira.Story (Jira.IssueData "title" "desc")
+        jid @?= Jira.mkJiraID "TEST" 42
 
 testGetIssues :: TestTree
 testGetIssues = testCase "getIssues" go

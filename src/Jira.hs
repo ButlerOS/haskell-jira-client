@@ -18,6 +18,12 @@ module Jira (
     JQL (..),
     JiraIssueInfo (..),
     JiraSearchResult (..),
+
+    -- * Create API
+    IssueType (..),
+    IssueData (..),
+    createIssue,
+    updateIssue,
 ) where
 
 import Control.Lens (toListOf, (^?))
@@ -36,7 +42,7 @@ import GHC.Exts (fromList)
 import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
 import Numeric.Natural (Natural)
-import Witch (From, from)
+import Witch (From, from, into)
 
 -- Check api doc at:
 -- https://developer.atlassian.com/server/jira/platform/jira-rest-api-examples/
@@ -81,7 +87,8 @@ jiraRequest client path (HttpVerb verb) body = do
 issueRequest :: JiraClient -> JiraID -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
 issueRequest client (JiraID jid) = jiraRequest client ("issue/" <> jid)
 
-newtype JiraID = JiraID Text deriving newtype (Show, Eq, Ord, FromJSON, ToJSON, IsString)
+newtype JiraID = JiraID Text
+    deriving newtype (Show, Eq, Ord, FromJSON, FromJSONKey, ToJSON, ToJSONKey, IsString)
 instance From JiraID Text where from (JiraID n) = n
 
 mkJiraID :: Text -> Natural -> JiraID
@@ -198,6 +205,60 @@ searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
 
 searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
 searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String $ Key.toText client.issueScoreKey] client
+
+data IssueType = Epic | EpicStory JiraID | Story | SubTask JiraID
+
+issueTypeName :: IssueType -> Text
+issueTypeName = \case
+    Epic -> "Epic"
+    EpicStory{} -> "Story"
+    Story -> "Story"
+    SubTask{} -> "Sub-Task"
+
+data IssueData = IssueData
+    { summary :: Text
+    , description :: Text
+    }
+    deriving (Eq, Show, Generic)
+instance ToJSON IssueData
+instance FromJSON IssueData
+
+decodeJiraIDResp :: Either Text Value -> Either Text JiraID
+decodeJiraIDResp = \case
+    Left err -> Left err
+    Right v -> JiraID <$> (v ^? key "key" . _String) `orDie` "Can't find key"
+
+createIssue :: JiraClient -> Text -> IssueType -> IssueData -> IO (Either Text JiraID)
+createIssue client project issueType issueData = decodeJiraIDResp <$> jiraRequest client "issue/" "POST" body
+  where
+    body = HTTP.RequestBodyLBS $ encode $ object ["fields" .= object attrs]
+    attrs =
+        [ "project" .= object ["key" .= project]
+        , "summary" .= issueData.summary
+        , "description" .= issueData.description
+        , "issuetype" .= object ["name" .= issueTypeName issueType]
+        ]
+            <> case issueType of
+                SubTask jid -> ["parent" .= object ["key" .= into @Text jid]]
+                -- TODO: support custom config
+                EpicStory jid -> ["customfield_12311140" .= into @Text jid]
+                Epic -> ["customfield_12311141" .= issueData.summary]
+                _ -> []
+
+ensureNull :: Either Text Value -> Maybe Text
+ensureNull = \case
+    Left err -> Just err
+    Right Null -> Nothing
+    Right v -> Just $ "Expected null, got: " <> decodeUtf8 (from $ encode v)
+
+updateIssue :: JiraClient -> JiraID -> IssueData -> IO (Maybe Text)
+updateIssue client jid issueData = ensureNull <$> jiraRequest client ("issue/" <> into @Text jid) "PUT" body
+  where
+    body = HTTP.RequestBodyLBS $ encode $ object ["fields" .= object attrs]
+    attrs =
+        [ "summary" .= issueData.summary
+        , "description" .= issueData.description
+        ]
 
 -- | From https://www.haskellforall.com/2021/05/the-trick-to-avoid-deeply-nested-error.html
 orDie :: Maybe a -> b -> Either b a
