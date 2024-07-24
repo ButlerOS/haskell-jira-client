@@ -1,6 +1,6 @@
-# md2jira - manage your JIRA backlog with markdown
+# md2jira - Manage Jira Backlog In Markdown
 
-Use this tool to push your markdown to JIRA.
+Use this tool to push your tasks written in markdown to JIRA.
 
 ## Usage
 
@@ -11,12 +11,16 @@ Add to a `project.md`:
 
 The goal of this epic is to achieve big goals!
 
-## First task
+## Story name
 
 This task is done when:
 
 - [ ] action a
 - [ ] action b
+
+## Other story
+
+DOD
 ```
 
 Write an environment `.env`:
@@ -27,16 +31,29 @@ JIRA_PROJECT=MY_PROJ
 JIRA_TOKEN=Msecret
 ```
 
-Install the toolchain using [ghcup](https://www.haskell.org/ghcup/).
-Then run the tool:
+Install the toolchain using [ghcup](https://www.haskell.org/ghcup/) to run the tool:
 
 ```
 $ export $(cat .env)
 $ cabal run exe:md2jira -- project.md
 ```
 
-The tool will push the content and update the markdown with the created issue ids.
-Re-run to sync, it's idempotent.
+`md2jira` creates the stories in the Jira database and it inserts the issue id in the header.
+For example, after the first run, the file will look like this:
+
+```
+# MY_PROJ-42 The epic name
+
+The goal of this epic is to achieve big goals!
+
+## MY_PROJ-43 Story name
+
+This task is...
+```
+
+When the title or the description is changed in the file, the Jira database is updated.
+The tool perform one-way push synchronization: the Jira data is not pulled.
+
 
 ## Integration with etherpad
 
