@@ -26,8 +26,11 @@ library
   build-depends:
     , attoparsec
     , containers
+    , exceptions
     , transformers
+    , http-client
     , jira-client
+    , mtl
     , text
     , witch
 

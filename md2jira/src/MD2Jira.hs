@@ -2,8 +2,9 @@ module MD2Jira (Epic (..), Story (..), parse, printer, eval) where
 
 import Control.Applicative (many, optional)
 import Control.Monad (when)
+import Control.Monad.Catch (catch)
+import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.RWS.CPS qualified as RWS
 import Data.Attoparsec.Text qualified as P
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
@@ -12,6 +13,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Jira (JiraID)
 import Jira qualified
+import Network.HTTP.Client (HttpException)
 import Witch (from)
 
 data Epic = Epic
@@ -89,7 +91,7 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
   where
     goEpic :: Epic -> EvalT Epic
     goEpic epic = do
-        mJira <- case epic.mJira of
+        mJira <- catchHttpError $ case epic.mJira of
             Nothing -> create Jira.Epic epic.info
             Just jid -> update jid epic.info
         case mJira of
@@ -100,10 +102,15 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
 
     goStory :: JiraID -> Story -> EvalT Story
     goStory epicID story = do
-        mJira <- case story.mJira of
+        mJira <- catchHttpError $ case story.mJira of
             Nothing -> create (Jira.EpicStory epicID) story.info
             Just jid -> update jid story.info
         pure $ Story mJira story.info
+
+    -- TODO: add retry
+    catchHttpError act = catch act \(e :: HttpException) -> do
+        RWS.tell ["Network request failed: " <> T.pack (show e)]
+        pure Nothing
 
     update jid issueData = do
         cache <- RWS.get
