@@ -1,6 +1,6 @@
-module MD2Jira (Epic (..), Story (..), parse, printer, eval) where
+module MD2Jira (Epic (..), Story (..), Task (..), TaskStatus (..), parse, printer, eval) where
 
-import Control.Applicative (many, optional)
+import Control.Applicative (many, optional, (<|>))
 import Control.Monad (when)
 import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
@@ -26,6 +26,16 @@ data Epic = Epic
 data Story = Story
     { mJira :: Maybe JiraID
     , info :: Jira.IssueData
+    , tasks :: [Task]
+    }
+    deriving (Eq, Show)
+
+data TaskStatus = Todo | InProgress | Done
+    deriving (Eq, Show)
+
+data Task = Task
+    { status :: TaskStatus
+    , info :: Jira.IssueData
     }
     deriving (Eq, Show)
 
@@ -33,16 +43,25 @@ data Story = Story
 epicP :: P.Parser Epic
 epicP =
     P.string "# " *> do
-        Epic <$> optional jiraP <*> issueP <*> many storyP
+        Epic <$> optional jiraP <*> issueP (== '#') <*> many storyP
 
 -- | Parse a 'Story'
 storyP :: P.Parser Story
 storyP =
     P.string "## " *> do
-        Story <$> optional jiraP <*> issueP
+        Story <$> optional jiraP <*> issueP (`elem` ['#', '-']) <*> many taskP
 
-issueP :: P.Parser Jira.IssueData
-issueP = Jira.IssueData <$> titleP <*> bodyP
+issueP :: (Char -> Bool) -> P.Parser Jira.IssueData
+issueP stopChar = Jira.IssueData <$> titleP <*> bodyP stopChar
+
+taskP :: P.Parser Task
+taskP = Task <$> statusP <*> issueP (`elem` ['#', '-'])
+  where
+    statusP :: P.Parser TaskStatus
+    statusP =
+        (Done <$ P.string "- [x]")
+            <|> (Todo <$ P.string "- [ ]")
+            <|> (InProgress <$ P.string "- [.]")
 
 -- | Parse a title
 titleP :: P.Parser Text
@@ -56,10 +75,10 @@ jiraP = do
     (Jira.mkJiraID name <$> P.decimal) <* P.string " "
 
 -- | Parse a body, until the next heading.
-bodyP :: P.Parser Text
-bodyP = T.strip <$> P.scan False go
+bodyP :: (Char -> Bool) -> P.Parser Text
+bodyP stopChar = T.strip <$> P.scan False go
   where
-    go True '#' = Nothing
+    go True c | stopChar c = Nothing
     go _ '\n' = Just True
     go _ _ = Just False
 
@@ -105,7 +124,7 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
         mJira <- catchHttpError $ case story.mJira of
             Nothing -> create (Jira.EpicStory epicID) story.info
             Just jid -> update jid story.info
-        pure $ Story mJira story.info
+        pure $ Story mJira story.info story.tasks
 
     -- TODO: add retry
     catchHttpError act = catch act \(e :: HttpException) -> do
@@ -148,7 +167,19 @@ printer = T.intercalate "\n" . map printEpic
             [ "## " <> printTitle story.mJira story.info.summary
             , ""
             , story.info.description
+            , "\n" <> T.intercalate "\n" (map printTask story.tasks)
             ]
+
+    printTask task = T.unwords ["-", printTaskStatus task.status, printIssueData task.info]
+
+    printTaskStatus = \case
+        Todo -> "[ ]"
+        InProgress -> "[.]"
+        Done -> "[x]"
+
+    printIssueData issueData = T.dropWhile (== ' ') issueData.summary <> desc
+      where
+        desc = if T.null issueData.description then "" else "\n" <> issueData.description
 
     printTitle mJira title = printJira mJira <> title
     printJira Nothing = ""
