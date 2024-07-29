@@ -1,6 +1,6 @@
-module MD2Jira (Epic (..), Story (..), parse, printer, eval) where
+module MD2Jira (Epic (..), Story (..), Task (..), TaskStatus (..), parse, printer, eval) where
 
-import Control.Applicative (many, optional)
+import Control.Applicative (many, optional, (<|>))
 import Control.Monad (when)
 import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
@@ -26,6 +26,16 @@ data Epic = Epic
 data Story = Story
     { mJira :: Maybe JiraID
     , info :: Jira.IssueData
+    , tasks :: [Task]
+    }
+    deriving (Eq, Show)
+
+data TaskStatus = Todo | InProgress | Done
+    deriving (Eq, Show)
+
+data Task = Task
+    { status :: TaskStatus
+    , info :: Jira.IssueData
     }
     deriving (Eq, Show)
 
@@ -33,16 +43,25 @@ data Story = Story
 epicP :: P.Parser Epic
 epicP =
     P.string "# " *> do
-        Epic <$> optional jiraP <*> issueP <*> many storyP
+        Epic <$> optional jiraP <*> issueP (== '#') <*> many storyP
 
 -- | Parse a 'Story'
 storyP :: P.Parser Story
 storyP =
     P.string "## " *> do
-        Story <$> optional jiraP <*> issueP
+        Story <$> optional jiraP <*> issueP (`elem` ['#', '-']) <*> many taskP
 
-issueP :: P.Parser Jira.IssueData
-issueP = Jira.IssueData <$> titleP <*> bodyP
+issueP :: (Char -> Bool) -> P.Parser Jira.IssueData
+issueP stopChar = Jira.IssueData <$> titleP <*> bodyP stopChar
+
+taskP :: P.Parser Task
+taskP = Task <$> statusP <*> issueP (`elem` ['#', '-'])
+  where
+    statusP :: P.Parser TaskStatus
+    statusP =
+        (Done <$ P.string "- [x]")
+            <|> (Todo <$ P.string "- [ ]")
+            <|> (InProgress <$ P.string "- [.]")
 
 -- | Parse a title
 titleP :: P.Parser Text
@@ -56,10 +75,10 @@ jiraP = do
     (Jira.mkJiraID name <$> P.decimal) <* P.string " "
 
 -- | Parse a body, until the next heading.
-bodyP :: P.Parser Text
-bodyP = T.strip <$> P.scan False go
+bodyP :: (Char -> Bool) -> P.Parser Text
+bodyP stopChar = P.scan False go
   where
-    go True '#' = Nothing
+    go True c | stopChar c = Nothing
     go _ '\n' = Just True
     go _ _ = Just False
 
@@ -86,8 +105,8 @@ type EvalT a = RWS.RWST Jira.JiraClient [Text] Cache IO a
 
 The function returns the updated issues, cache and a list of errors
 -}
-eval :: Jira.JiraClient -> Text -> [Epic] -> Cache -> IO ([Epic], Cache, [Text])
-eval client project epics = RWS.runRWST (mapM goEpic epics) client
+eval :: (Text -> IO ()) -> Jira.JiraClient -> Text -> [Epic] -> Cache -> IO ([Epic], Cache, [Text])
+eval logger client project epics = RWS.runRWST (mapM goEpic epics) client
   where
     goEpic :: Epic -> EvalT Epic
     goEpic epic = do
@@ -102,10 +121,11 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
 
     goStory :: JiraID -> Story -> EvalT Story
     goStory epicID story = do
+        let info = storyData story
         mJira <- catchHttpError $ case story.mJira of
-            Nothing -> create (Jira.EpicStory epicID) story.info
-            Just jid -> update jid story.info
-        pure $ Story mJira story.info
+            Nothing -> create (Jira.EpicStory epicID) info
+            Just jid -> update jid info
+        pure $ Story mJira story.info story.tasks
 
     -- TODO: add retry
     catchHttpError act = catch act \(e :: HttpException) -> do
@@ -115,14 +135,18 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
     update jid issueData = do
         cache <- RWS.get
         when (Map.lookup jid cache /= Just issueData) do
-            res <- lift $ Jira.updateIssue client jid issueData
+            res <- lift do
+                logger $ "Updating " <> from jid
+                Jira.updateIssue client jid issueData
             case res of
                 Nothing -> RWS.modify (Map.insert jid issueData)
                 Just err -> RWS.tell ["Failed to update " <> from jid <> ": " <> err]
         pure (Just jid)
 
     create issueType issueData = do
-        res <- lift $ Jira.createIssue client project issueType issueData
+        res <- lift do
+            logger $ "Creating " <> T.pack (show issueType) <> " " <> issueData.summary
+            Jira.createIssue client project issueType issueData
         case res of
             Left err -> do
                 RWS.tell ["Failed to create " <> issueData.summary <> ": " <> err]
@@ -133,23 +157,43 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
 
 -- | Reformat the document.
 printer :: [Epic] -> Text
-printer = T.intercalate "\n" . map printEpic
+printer = foldMap printEpic
   where
+    printEpic :: Epic -> Text
     printEpic epic =
-        T.unlines
+        mconcat
             [ "# " <> printTitle epic.mJira epic.info.summary
-            , ""
             , epic.info.description
-            , "\n" <> T.intercalate "\n" (map printStory epic.stories)
+            , foldMap printStory epic.stories
             ]
 
+    printStory :: Story -> Text
     printStory story =
-        T.unlines
-            [ "## " <> printTitle story.mJira story.info.summary
-            , ""
-            , story.info.description
+        mconcat
+            [ "## " <> printTitle story.mJira issueData.summary
+            , issueData.description
             ]
+      where
+        issueData = storyData story
 
     printTitle mJira title = printJira mJira <> title
     printJira Nothing = ""
     printJira (Just jid) = from jid <> " "
+
+printTask :: Task -> Text
+printTask task =
+    mconcat
+        [ "- " <> printTaskStatus task.status <> task.info.summary
+        , task.info.description
+        ]
+  where
+    printTaskStatus = \case
+        Todo -> "[ ]"
+        InProgress -> "[.]"
+        Done -> "[x]"
+
+-- | Adds the task back into the description
+storyData :: Story -> Jira.IssueData
+storyData story = Jira.IssueData{summary = story.info.summary, description}
+  where
+    description = story.info.description <> foldMap printTask story.tasks

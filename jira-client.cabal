@@ -70,7 +70,7 @@ library
     , witch
   default-language: GHC2021
 
-test-suite spec
+test-suite jira-spec
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
