@@ -24,6 +24,7 @@ library
   hs-source-dirs:  src
   exposed-modules: MD2Jira
   build-depends:
+    , aeson
     , attoparsec
     , containers
     , exceptions

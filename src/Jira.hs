@@ -24,12 +24,17 @@ module Jira (
     IssueData (..),
     createIssue,
     updateIssue,
+
+    -- * Update API
+    Transition (..),
+    doTransition,
 ) where
 
 import Control.Lens (toListOf, (^?))
 import Data.Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.Lens
+import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
 import Data.String (IsString)
@@ -206,6 +211,8 @@ searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
 searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
 searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String $ Key.toText client.issueScoreKey] client
 
+newtype Transition = Transition Word deriving newtype (Eq, Show, ToJSON, FromJSON)
+
 data IssueType = Epic | EpicStory JiraID | Story | SubTask JiraID
     deriving (Show)
 
@@ -229,10 +236,14 @@ decodeJiraIDResp = \case
     Left err -> Left err
     Right v -> JiraID <$> (v ^? key "key" . _String) `orDie` "Can't find key"
 
+mkBody :: Key -> [Pair] -> HTTP.RequestBody
+mkBody name attrs =
+    HTTP.RequestBodyLBS $ encode $ object [name .= object attrs]
+
 createIssue :: JiraClient -> Text -> IssueType -> IssueData -> IO (Either Text JiraID)
 createIssue client project issueType issueData = decodeJiraIDResp <$> jiraRequest client "issue/" "POST" body
   where
-    body = HTTP.RequestBodyLBS $ encode $ object ["fields" .= object attrs]
+    body = mkBody "fields" attrs
     attrs =
         [ "project" .= object ["key" .= project]
         , "summary" .= T.strip issueData.summary
@@ -255,7 +266,7 @@ ensureNull = \case
 updateIssue :: JiraClient -> JiraID -> IssueData -> IO (Maybe Text)
 updateIssue client jid issueData = ensureNull <$> jiraRequest client ("issue/" <> into @Text jid) "PUT" body
   where
-    body = HTTP.RequestBodyLBS $ encode $ object ["fields" .= object attrs]
+    body = mkBody "fields" attrs
     attrs =
         [ "summary" .= T.strip issueData.summary
         , "description" .= T.strip issueData.description
@@ -265,3 +276,9 @@ updateIssue client jid issueData = ensureNull <$> jiraRequest client ("issue/" <
 orDie :: Maybe a -> b -> Either b a
 Just a `orDie` _ = Right a
 Nothing `orDie` err = Left err
+
+doTransition :: JiraClient -> JiraID -> Transition -> IO (Maybe Text)
+doTransition client jid transition = ensureNull <$> jiraRequest client path "POST" body
+  where
+    path = "issue/" <> into @Text jid <> "/transitions"
+    body = mkBody "transition" ["id" .= transition]
