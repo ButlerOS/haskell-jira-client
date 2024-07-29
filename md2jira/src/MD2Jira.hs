@@ -76,7 +76,7 @@ jiraP = do
 
 -- | Parse a body, until the next heading.
 bodyP :: (Char -> Bool) -> P.Parser Text
-bodyP stopChar = T.strip <$> P.scan False go
+bodyP stopChar = P.scan False go
   where
     go True c | stopChar c = Nothing
     go _ '\n' = Just True
@@ -121,9 +121,10 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
 
     goStory :: JiraID -> Story -> EvalT Story
     goStory epicID story = do
+        let info = storyData story
         mJira <- catchHttpError $ case story.mJira of
-            Nothing -> create (Jira.EpicStory epicID) story.info
-            Just jid -> update jid story.info
+            Nothing -> create (Jira.EpicStory epicID) info
+            Just jid -> update jid info
         pure $ Story mJira story.info story.tasks
 
     -- TODO: add retry
@@ -152,35 +153,43 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
 
 -- | Reformat the document.
 printer :: [Epic] -> Text
-printer = T.intercalate "\n" . map printEpic
+printer = foldMap printEpic
   where
+    printEpic :: Epic -> Text
     printEpic epic =
-        T.unlines
+        mconcat
             [ "# " <> printTitle epic.mJira epic.info.summary
-            , ""
             , epic.info.description
-            , "\n" <> T.intercalate "\n" (map printStory epic.stories)
+            , foldMap printStory epic.stories
             ]
 
+    printStory :: Story -> Text
     printStory story =
-        T.unlines
-            [ "## " <> printTitle story.mJira story.info.summary
-            , ""
-            , story.info.description
-            , "\n" <> T.intercalate "\n" (map printTask story.tasks)
+        mconcat
+            [ "## " <> printTitle story.mJira issueData.summary
+            , issueData.description
             ]
+      where
+        issueData = storyData story
 
-    printTask task = T.unwords ["-", printTaskStatus task.status, printIssueData task.info]
+    printTitle mJira title = printJira mJira <> title
+    printJira Nothing = ""
+    printJira (Just jid) = from jid <> " "
 
+printTask :: Task -> Text
+printTask task =
+    mconcat
+        [ "- " <> printTaskStatus task.status <> task.info.summary
+        , task.info.description
+        ]
+  where
     printTaskStatus = \case
         Todo -> "[ ]"
         InProgress -> "[.]"
         Done -> "[x]"
 
-    printIssueData issueData = T.dropWhile (== ' ') issueData.summary <> desc
-      where
-        desc = if T.null issueData.description then "" else "\n" <> issueData.description
-
-    printTitle mJira title = printJira mJira <> title
-    printJira Nothing = ""
-    printJira (Just jid) = from jid <> " "
+-- | Adds the task back into the description
+storyData :: Story -> Jira.IssueData
+storyData story = Jira.IssueData{summary = story.info.summary, description}
+  where
+    description = story.info.description <> foldMap printTask story.tasks

@@ -234,8 +234,8 @@ createIssue client project issueType issueData = decodeJiraIDResp <$> jiraReques
     body = HTTP.RequestBodyLBS $ encode $ object ["fields" .= object attrs]
     attrs =
         [ "project" .= object ["key" .= project]
-        , "summary" .= issueData.summary
-        , "description" .= issueData.description
+        , "summary" .= T.strip issueData.summary
+        , "description" .= T.strip issueData.description
         , "issuetype" .= object ["name" .= issueTypeName issueType]
         ]
             <> case issueType of
@@ -256,8 +256,8 @@ updateIssue client jid issueData = ensureNull <$> jiraRequest client ("issue/" <
   where
     body = HTTP.RequestBodyLBS $ encode $ object ["fields" .= object attrs]
     attrs =
-        [ "summary" .= issueData.summary
-        , "description" .= issueData.description
+        [ "summary" .= T.strip issueData.summary
+        , "description" .= T.strip issueData.description
         ]
 
 -- | From https://www.haskellforall.com/2021/05/the-trick-to-avoid-deeply-nested-error.html
