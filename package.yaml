@@ -60,7 +60,7 @@ library:
   source-dirs: src
 
 tests:
-  spec:
+  jira-spec:
     main: Spec.hs
     ghc-options: -threaded -rtsopts -with-rtsopts=-T
     source-dirs: test
