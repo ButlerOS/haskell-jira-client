@@ -207,6 +207,7 @@ searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchRe
 searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String $ Key.toText client.issueScoreKey] client
 
 data IssueType = Epic | EpicStory JiraID | Story | SubTask JiraID
+    deriving (Show)
 
 issueTypeName :: IssueType -> Text
 issueTypeName = \case

@@ -32,7 +32,8 @@ main =
         project <- T.pack <$> getEnv "JIRA_PROJECT"
         client <- mkClient
         cache <- loadCache
-        (newEpics, newCache, errors) <- eval client project epics cache
+        let logger _ = pure ()
+        (newEpics, newCache, errors) <- eval logger client project epics cache
         T.putStrLn $ printer newEpics
         let updated = cache /= newCache
         when updated $ encodeFile ".cache.json" newCache

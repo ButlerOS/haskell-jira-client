@@ -105,8 +105,8 @@ type EvalT a = RWS.RWST Jira.JiraClient [Text] Cache IO a
 
 The function returns the updated issues, cache and a list of errors
 -}
-eval :: Jira.JiraClient -> Text -> [Epic] -> Cache -> IO ([Epic], Cache, [Text])
-eval client project epics = RWS.runRWST (mapM goEpic epics) client
+eval :: (Text -> IO ()) -> Jira.JiraClient -> Text -> [Epic] -> Cache -> IO ([Epic], Cache, [Text])
+eval logger client project epics = RWS.runRWST (mapM goEpic epics) client
   where
     goEpic :: Epic -> EvalT Epic
     goEpic epic = do
@@ -135,14 +135,18 @@ eval client project epics = RWS.runRWST (mapM goEpic epics) client
     update jid issueData = do
         cache <- RWS.get
         when (Map.lookup jid cache /= Just issueData) do
-            res <- lift $ Jira.updateIssue client jid issueData
+            res <- lift do
+                logger $ "Updating " <> from jid
+                Jira.updateIssue client jid issueData
             case res of
                 Nothing -> RWS.modify (Map.insert jid issueData)
                 Just err -> RWS.tell ["Failed to update " <> from jid <> ": " <> err]
         pure (Just jid)
 
     create issueType issueData = do
-        res <- lift $ Jira.createIssue client project issueType issueData
+        res <- lift do
+            logger $ "Creating " <> T.pack (show issueType) <> " " <> issueData.summary
+            Jira.createIssue client project issueType issueData
         case res of
             Left err -> do
                 RWS.tell ["Failed to create " <> issueData.summary <> ": " <> err]
