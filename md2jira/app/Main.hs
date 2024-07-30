@@ -16,14 +16,14 @@ import System.Exit (exitFailure)
 main :: IO ()
 main =
     getArgs >>= \case
-        ["--dry"] -> T.putStrLn . printer . either error id . parse =<< T.getContents
+        ["--dry"] -> T.putStrLn . printer . either error id . parse "<input>" =<< T.getContents
         ["--help"] -> die "usage: md2jira FILE"
         [fp] ->
-            fmap parse (T.readFile fp) >>= \case
+            fmap (parse fp) (T.readFile fp) >>= \case
                 Right epics -> T.writeFile fp =<< go epics
                 Left err -> die $ T.pack $ fp <> ": parse error: " <> err
         [] ->
-            fmap parse T.getContents >>= \case
+            fmap (parse "<input>") T.getContents >>= \case
                 Right epics -> void $ go epics
                 Left err -> die $ "Could not parse input: " <> T.pack err
         _ -> die "usage: md2jira < FILE"

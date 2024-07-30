@@ -6,16 +6,18 @@ import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
 import Data.Aeson (FromJSON, ToJSON)
-import Data.Attoparsec.Text qualified as P
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Void (Void)
 import GHC.Generics (Generic)
 import Jira (JiraID)
 import Jira qualified
 import Network.HTTP.Client (HttpException)
+import Text.Megaparsec qualified as P
+import Text.Megaparsec.Char.Lexer qualified as P
 import Witch (from)
 
 data Epic = Epic
@@ -56,59 +58,71 @@ data Task = Task
 instance ToJSON Task
 instance FromJSON Task
 
+type Parser = P.Parsec Void Text
+
 -- | Parse a 'Epic'
-epicP :: P.Parser Epic
+epicP :: Parser Epic
 epicP =
-    P.string "# " *> do
+    "# " *> do
         Epic <$> optional jiraP <*> issueP (== '#') <*> many storyP
 
 -- | Parse a 'Story'
-storyP :: P.Parser Story
+storyP :: Parser Story
 storyP =
-    P.string "## " *> do
+    "## " *> do
         Story <$> optional jiraP <*> issueP (`elem` ['#', '-']) <*> many taskP
 
-issueP :: (Char -> Bool) -> P.Parser Jira.IssueData
+issueP :: (Char -> Bool) -> Parser Jira.IssueData
 issueP stopChar = Jira.IssueData <$> titleP <*> bodyP stopChar
 
-taskP :: P.Parser Task
+taskP :: Parser Task
 taskP = Task <$> statusP <*> issueP (`elem` ['#', '-'])
   where
-    statusP :: P.Parser TaskStatus
+    statusP :: Parser TaskStatus
     statusP =
-        (Done <$ P.string "- [x]")
-            <|> (Todo <$ (P.string "- [ ]" <|> P.string "- []"))
+        (Done <$ "- [x]")
+            <|> (Todo <$ ("- []" <|> "- [ ]"))
             <|> (InProgress <$> assignedP)
 
-assignedP :: P.Parser Text
-assignedP = P.string "- [" *> P.takeWhile (/= ']') <* P.string "]"
+assignedP :: Parser Text
+assignedP = "- [" *> P.takeWhile1P (Just "assigned") (/= ']') <* "]"
 
 -- | Parse a title
-titleP :: P.Parser Text
-titleP = P.takeWhile (/= '\n')
+titleP :: Parser Text
+titleP = P.takeWhile1P (Just "title") (/= '\n')
 
 -- | Parse a 'JiraID'
-jiraP :: P.Parser JiraID
+jiraP :: Parser JiraID
 jiraP = do
-    name <- P.takeWhile (\c -> c == '_' || isAsciiUpper c)
-    _ <- P.string "-"
-    (Jira.mkJiraID name <$> P.decimal) <* P.string " "
+    name <- P.takeWhile1P (Just "project") (\c -> c == '_' || isAsciiUpper c)
+    _ <- "-"
+    (Jira.mkJiraID name <$> P.decimal) <* " "
 
 -- | Parse a body, until the next heading.
-bodyP :: (Char -> Bool) -> P.Parser Text
-bodyP stopChar = P.scan False go
+bodyP :: (Char -> Bool) -> Parser Text
+bodyP stopChar = go []
   where
-    go True c | stopChar c = Nothing
-    go _ '\n' = Just True
-    go _ _ = Just False
+    go :: [Text] -> Parser Text
+    go acc = do
+        line <- P.takeWhileP Nothing (/= '\n')
+        cr <- P.optional (P.satisfy (== '\n'))
+        let linecr = case cr of
+                Nothing -> line
+                Just{} -> T.snoc line '\n'
+        isEnd <- P.lookAhead ((True <$ P.satisfy stopChar) <|> P.atEnd)
+        if isEnd
+            then pure $ mconcat $ reverse $ linecr : acc
+            else go (linecr : acc)
 
 {- | Parse a markdown
 
 >>> parse $ T.unlines ["# RHOS-45 toto", "body", "body2", "## test", "body story", "## testy 2"]
 Right [Epic {mJira = Just "RHOS-45", info = IssueData {summary = "toto", description = "body\nbody2"}, stories = [Story {mJira = Nothing, info = IssueData {summary = "test", description = "body story"}},Story {mJira = Nothing, info = IssueData {summary = "testy 2", description = ""}}]}]
 -}
-parse :: Text -> Either String [Epic]
-parse = P.parseOnly (many epicP <* P.endOfInput)
+parse :: FilePath -> Text -> Either String [Epic]
+parse fp inp = case P.parse (P.many epicP <* P.eof) fp inp of
+    Left err -> Left $ P.errorBundlePretty err
+    Right epics -> pure epics
 
 type Cache = Map JiraID (Jira.IssueData, [Task])
 

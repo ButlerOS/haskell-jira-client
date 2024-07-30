@@ -25,7 +25,7 @@ library
   exposed-modules: MD2Jira
   build-depends:
     , aeson
-    , attoparsec
+    , megaparsec
     , containers
     , exceptions
     , transformers
