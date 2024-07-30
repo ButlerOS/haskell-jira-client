@@ -36,15 +36,16 @@ data Story = Story
 instance ToJSON Story
 instance FromJSON Story
 
-data TaskStatus = Todo | InProgress | Done
+data TaskStatus = Todo | InProgress {assigned :: Text} | Done
     deriving (Eq, Show, Generic)
 instance ToJSON TaskStatus
 instance FromJSON TaskStatus
 
+-- | TODO: fetch that from the project, it is in the `GET api/2/issue/NAME/transitions` endpoint
 taskTransition :: TaskStatus -> Jira.Transition
 taskTransition = \case
     Todo -> Jira.Transition 11
-    InProgress -> Jira.Transition 21
+    InProgress{} -> Jira.Transition 21
     Done -> Jira.Transition 51
 
 data Task = Task
@@ -76,8 +77,11 @@ taskP = Task <$> statusP <*> issueP (`elem` ['#', '-'])
     statusP :: P.Parser TaskStatus
     statusP =
         (Done <$ P.string "- [x]")
-            <|> (Todo <$ P.string "- [ ]")
-            <|> (InProgress <$ P.string "- [.]")
+            <|> (Todo <$ (P.string "- [ ]" <|> P.string "- []"))
+            <|> (InProgress <$> assignedP)
+
+assignedP :: P.Parser Text
+assignedP = P.string "- [" *> P.takeWhile (/= ']') <* P.string "]"
 
 -- | Parse a title
 titleP :: P.Parser Text
@@ -230,7 +234,7 @@ printTask task =
   where
     printTaskStatus = \case
         Todo -> "[ ]"
-        InProgress -> "[.]"
+        InProgress{assigned} -> "[" <> assigned <> "]"
         Done -> "[x]"
 
 -- | Adds the task back into the description
@@ -239,11 +243,14 @@ storyData story = Jira.IssueData{summary = story.info.summary, description}
   where
     description = story.info.description <> foldMap printTask story.tasks
 
+-- | Get the status of a story given a list of task
 storyTransition :: [Task] -> Jira.Transition
 storyTransition tasks = taskTransition status
   where
     status
         | allTasksAre Done = Done
         | allTasksAre Todo = Todo
-        | otherwise = InProgress
+        | -- For transition, the assignment is not relevant
+          otherwise =
+            InProgress "."
     allTasksAre s = all (\task -> task.status == s) tasks
