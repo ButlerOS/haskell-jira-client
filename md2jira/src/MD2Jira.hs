@@ -1,7 +1,7 @@
-module MD2Jira (Epic (..), Story (..), Task (..), TaskStatus (..), parse, printer, eval) where
+module MD2Jira (Epic (..), Story (..), Task (..), TaskStatus (..), parse, printer, eval, showScore) where
 
 import Control.Applicative (many, optional, (<|>))
-import Control.Monad (unless, void, when)
+import Control.Monad (join, unless, void, when)
 import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
@@ -32,6 +32,7 @@ instance FromJSON Epic
 data Story = Story
     { mJira :: Maybe JiraID
     , info :: Jira.IssueData
+    , mScore :: Maybe Float
     , tasks :: [Task]
     }
     deriving (Eq, Show, Generic)
@@ -62,15 +63,29 @@ type Parser = P.Parsec Void Text
 
 -- | Parse a 'Epic'
 epicP :: Parser Epic
-epicP =
-    "# " *> do
-        Epic <$> optional jiraP <*> issueP (== '#') <*> many storyP
+epicP = do
+    void "# "
+    mJira <- optional jiraP
+    info <- issueP (== '#')
+    stories <- many storyP
+    pure $ Epic{mJira, info, stories}
 
 -- | Parse a 'Story'
 storyP :: Parser Story
-storyP =
-    "## " *> do
-        Story <$> optional jiraP <*> issueP (`elem` ['#', '-']) <*> many taskP
+storyP = do
+    void "## "
+    mJira <- optional jiraP
+    title <- titleP
+    mScore <- scoreP
+    body <- bodyP (`elem` ['#', '-'])
+    let info = Jira.IssueData title body
+    tasks <- many taskP
+    pure $ Story{mJira, info, mScore, tasks}
+
+scoreP :: Parser (Maybe Float)
+scoreP =
+    join <$> P.optional do
+        "\n> Score: " *> P.optional (P.try P.float <|> P.decimal)
 
 issueP :: (Char -> Bool) -> Parser Jira.IssueData
 issueP stopChar = Jira.IssueData <$> titleP <*> bodyP stopChar
@@ -93,8 +108,8 @@ titleP = P.takeWhile1P (Just "title") (/= '\n')
 
 -- | Parse a 'JiraID'
 jiraP :: Parser JiraID
-jiraP = do
-    name <- P.takeWhile1P (Just "project") (\c -> c == '_' || isAsciiUpper c)
+jiraP = P.try do
+    name <- P.takeWhile1P (Just "jira-id") (\c -> c == '_' || isAsciiUpper c)
     _ <- "-"
     (Jira.mkJiraID name <$> P.decimal) <* " "
 
@@ -161,7 +176,7 @@ eval logger client project epics = RWS.runRWST (mapM goEpic epics) client
             Just jid -> update story.tasks jid info
         pure $ case mJira of
             Nothing -> story
-            Just{} -> Story mJira story.info story.tasks
+            Just{} -> Story mJira story.info story.mScore story.tasks
 
     -- TODO: add retry
     catchHttpError act = catch act \(e :: HttpException) -> do
@@ -230,6 +245,7 @@ printer = foldMap printEpic
     printStory story =
         mconcat
             [ "## " <> printTitle story.mJira issueData.summary
+            , maybe "" (mappend "\n> Score: " . T.pack . showScore) story.mScore
             , issueData.description
             ]
       where
@@ -238,6 +254,13 @@ printer = foldMap printEpic
     printTitle mJira title = printJira mJira <> title
     printJira Nothing = ""
     printJira (Just jid) = from jid <> " "
+
+showScore :: Float -> String
+showScore score =
+    let f = floor score
+     in if f == ceiling score
+            then show @Int f
+            else show score
 
 printTask :: Task -> Text
 printTask task =

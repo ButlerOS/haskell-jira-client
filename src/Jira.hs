@@ -94,6 +94,7 @@ issueRequest client (JiraID jid) = jiraRequest client ("issue/" <> jid)
 
 newtype JiraID = JiraID Text
     deriving newtype (Show, Eq, Ord, FromJSON, FromJSONKey, ToJSON, ToJSONKey, IsString)
+    deriving (Generic)
 instance From JiraID Text where from (JiraID n) = n
 
 mkJiraID :: Text -> Natural -> JiraID
