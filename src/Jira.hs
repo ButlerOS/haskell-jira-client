@@ -212,7 +212,9 @@ searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
 searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
 searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String $ Key.toText client.issueScoreKey] client
 
-newtype Transition = Transition Word deriving newtype (Eq, Show, ToJSON, FromJSON)
+newtype Transition = Transition Word
+    deriving (Generic)
+    deriving newtype (Eq, Show, ToJSON, FromJSON)
 
 data IssueType = Epic | EpicStory JiraID | Story | SubTask JiraID
     deriving (Show)

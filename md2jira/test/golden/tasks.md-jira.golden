@@ -1,0 +1,19 @@
+EpicTitle: epic
+EpicBody:
+
+
+StoryTitle: story
+StoryBody:
+* ☐ a task
+with left over
+* ☐ a task
+with right
+
+bq. with quote?
+* ☐ a task
+
+bq. with comment
+* ☐ a task
+bq. with comment
+
+

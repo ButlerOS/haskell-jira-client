@@ -49,18 +49,18 @@ Refine the entry and run `md2jira project.md` to create the issues in Jira.
 The tool will update the file to inject the remote identifiers:
 
 ```markdown
-# PROJ-1 Develop Y
+# Develop Y {#PROJ-1}
 
-## PROJ-2 Implement feature name
+## Implement feature name {#PROJ-2}
 
 The goal of this story is to ...:
 
 - [ ] create module
 - [ ] update api
 
-# PROJ-3 Operate X
+# Operate X {#PROJ-3}
 
-# PROJ-4 Support Z
+# Support Z {#PROJ-4}
 ```
 
 Re-run `md2jira` at any points to synchronize the file content, the command is idempotent.
@@ -72,8 +72,8 @@ The tool perform one-way push synchronization: the Jira data is not pulled.
 Define what needs to be done next by marking the actionable items:
 
 ```markdown
-- [.] a task to be completed next
-- [TC] a task in progress assigned to TC
+- [ ] a task to be completed next {.n}
+- [ ] a task in progress assigned to {.TC}
 ```
 
 **Do the work**
@@ -81,8 +81,8 @@ Define what needs to be done next by marking the actionable items:
 Once a task is complete, mark the the item and add a comment:
 
 ```markdown
-- [x] a completed task
-  TC: here is the $change_url
+- [x] a completed task {.TC}
+  > here is the $change_url
 ```
 
 Once all the tasks are done, run `md2jira` one more time to close the story.

@@ -1,0 +1,133 @@
+Document
+    { intro = []
+    , epics =
+        [ Epic
+            { mJira = Nothing
+            , title = "epic"
+            , description = []
+            , stories =
+                [ Story
+                    { mJira = Nothing
+                    , title = "story"
+                    , description =
+                        [ BulletList
+                            [
+                                [ Para
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "a"
+                                    , Space
+                                    , Str "task"
+                                    , SoftBreak
+                                    , Str "with"
+                                    , Space
+                                    , Str "left"
+                                    , Space
+                                    , Str "over"
+                                    ]
+                                ]
+                            ,
+                                [ Para
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "a"
+                                    , Space
+                                    , Str "task"
+                                    , SoftBreak
+                                    , Str "with"
+                                    , Space
+                                    , Str "right"
+                                    ]
+                                ]
+                            ]
+                        , BlockQuote
+                            [ Para
+                                [ Str "with"
+                                , Space
+                                , Str "quote?"
+                                ]
+                            ]
+                        , BulletList
+                            [
+                                [ Plain
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "a"
+                                    , Space
+                                    , Str "task"
+                                    ]
+                                ]
+                            ]
+                        , BlockQuote
+                            [ Para
+                                [ Str "with"
+                                , Space
+                                , Str "comment"
+                                ]
+                            ]
+                        , BulletList
+                            [
+                                [ Plain
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "a"
+                                    , Space
+                                    , Str "task"
+                                    ]
+                                , BlockQuote
+                                    [ Para
+                                        [ Str "with"
+                                        , Space
+                                        , Str "comment"
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    , tasks =
+                        [ Task
+                            { status = Open
+                            , title = "a task"
+                            , assigned = []
+                            , description =
+                                [ Plain
+                                    [ Str "with"
+                                    , Space
+                                    , Str "left"
+                                    , Space
+                                    , Str "over"
+                                    ]
+                                ]
+                            }
+                        , Task
+                            { status = Open
+                            , title = "a task"
+                            , assigned = []
+                            , description =
+                                [ Plain
+                                    [ Str "with"
+                                    , Space
+                                    , Str "right"
+                                    ]
+                                ]
+                            }
+                        , Task
+                            { status = Open
+                            , title = "a task"
+                            , assigned = []
+                            , description = []
+                            }
+                        , Task
+                            { status = Open
+                            , title = "a task"
+                            , assigned = []
+                            , description = []
+                            }
+                        ]
+                    , mScore = Nothing
+                    , updated = Nothing
+                    }
+                ]
+            }
+        ]
+    }

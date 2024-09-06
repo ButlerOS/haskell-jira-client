@@ -1,7 +1,7 @@
 {
   inputs = {
     hspkgs.url =
-      "github:podenv/hspkgs/90eadd304c6375f926a0970f87b470e765e7f176";
+      "github:podenv/hspkgs/7a46854f28ab9b99c51353c81d5967f1f6fd9a9b";
     # "path:///srv/github.com/podenv/hspkgs";
   };
   outputs = { self, hspkgs }:
@@ -15,10 +15,10 @@
       hsPkgs = pkgs.hspkgs.extend haskellExtend;
 
       baseTools = with pkgs; [
+        cabal-gild
         hpack
         cabal-install
         hlint
-        tasty-discover
         fourmolu
         weeder
         hsPkgs.doctest
@@ -30,12 +30,8 @@
         buildInputs = baseTools;
       };
       devShell."x86_64-linux" = hsPkgs.shellFor {
-        packages = p: [ p.jira-client p.md2jira];
-        buildInputs = with pkgs;
-          [
-            ghcid
-            haskell-language-server
-          ] ++ baseTools;
+        packages = p: [ p.jira-client p.md2jira ];
+        buildInputs = with pkgs; [ ghcid haskell-language-server ] ++ baseTools;
       };
     };
 }

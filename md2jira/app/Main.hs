@@ -16,30 +16,30 @@ import System.Exit (exitFailure)
 main :: IO ()
 main =
     getArgs >>= \case
-        ["--dry"] -> T.putStrLn . printer . either error id . parse "<input>" =<< T.getContents
+        ["--dry"] -> T.putStrLn . printer . either (error . show) id . parse =<< T.getContents
         ["--help"] -> die "usage: md2jira FILE"
         [fp] ->
-            fmap (parse fp) (T.readFile fp) >>= \case
-                Right epics -> T.writeFile fp =<< go epics
-                Left err -> die $ T.pack $ fp <> ": parse error: " <> err
+            fmap parse (T.readFile fp) >>= \case
+                Right doc -> T.writeFile fp =<< go doc
+                Left err -> die $ T.pack fp <> ": parse error: " <> err
         [] ->
-            fmap (parse "<input>") T.getContents >>= \case
-                Right epics -> void $ go epics
-                Left err -> die $ "Could not parse input: " <> T.pack err
+            fmap parse T.getContents >>= \case
+                Right doc -> void $ go doc
+                Left err -> die $ "Could not parse input: " <> err
         _ -> die "usage: md2jira < FILE"
   where
-    go epics = do
+    go doc = do
         project <- T.pack <$> getEnv "JIRA_PROJECT"
         client <- mkClient
         cache <- loadCache
         let logger _ = pure ()
-        (newEpics, newCache, errors) <- eval logger client project epics cache
-        T.putStrLn $ printer newEpics
+        (newDoc, newCache, errors) <- eval logger client project doc cache
+        T.putStrLn $ printer newDoc
         let updated = cache /= newCache
         when updated $ encodeFile ".cache.json" newCache
         case errors of
             []
-                | updated -> pure $ printer newEpics
+                | updated -> pure $ printer newDoc
                 | otherwise -> die "Already synced"
             xs -> die $ T.unlines xs
 
