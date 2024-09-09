@@ -10,6 +10,7 @@ cabal build -O0 --enable-tests --ghc-option=-Werror all
 
 log "Testing"
 cabal test -O0 --test-show-details=direct
+cabal test -O0 --test-option=--accept --test-show-details=direct test:md2jira-test
 cabal check
 
 log "Formatting"

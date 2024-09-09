@@ -1,0 +1,29 @@
+EpicTitle: Develop app
+EpicBody:
+The goal of app is ...
+
+{code:bash}
+$ command
+output
+{code}
+
+StoryTitle: Implement X
+StoryBody:
+The goal of this story is ...
+
+* ☐ do x
+* ☐ and y
+
+what about:
+
+* ☐ z task
+
+
+
+StoryTitle: Implement Z
+StoryBody:
+* ☒ completed
+bq. https://localhost
+* ☐ todo
+
+

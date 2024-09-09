@@ -1,0 +1,182 @@
+Document
+    { intro =
+        [ Para
+            [ Str "Document"
+            , Space
+            , Str "usage:"
+            ]
+        , BulletList
+            [
+                [ Plain
+                    [ Str "test" ]
+                ]
+            ]
+        ]
+    , epics =
+        [ Epic
+            { mJira = Just "PROJ-42"
+            , title = "Develop app"
+            , description =
+                [ Para
+                    [ Str "The"
+                    , Space
+                    , Str "goal"
+                    , Space
+                    , Str "of"
+                    , Space
+                    , Str "app"
+                    , Space
+                    , Str "is"
+                    , Space
+                    , Str "..."
+                    ]
+                , CodeBlock
+                    ( ""
+                    , [ "bash" ]
+                    , []
+                    ) "$ command
+                  output"
+                ]
+            , stories =
+                [ Story
+                    { mJira = Nothing
+                    , title = "Implement X"
+                    , description =
+                        [ Para
+                            [ Str "The"
+                            , Space
+                            , Str "goal"
+                            , Space
+                            , Str "of"
+                            , Space
+                            , Str "this"
+                            , Space
+                            , Str "story"
+                            , Space
+                            , Str "is"
+                            , Space
+                            , Str "..."
+                            ]
+                        , BulletList
+                            [
+                                [ Plain
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "do"
+                                    , Space
+                                    , Str "x"
+                                    , Span
+                                        ( ""
+                                        , [ "n" ]
+                                        , []
+                                        ) [ Space ]
+                                    ]
+                                ]
+                            ,
+                                [ Plain
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "and"
+                                    , Space
+                                    , Str "y"
+                                    ]
+                                ]
+                            ]
+                        , Para
+                            [ Str "what"
+                            , Space
+                            , Str "about:"
+                            ]
+                        , BulletList
+                            [
+                                [ Plain
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "z"
+                                    , Space
+                                    , Str "task"
+                                    ]
+                                ]
+                            ]
+                        ]
+                    , tasks =
+                        [ Task
+                            { status = Open
+                            , title = "do x"
+                            , assigned = [ "n" ]
+                            , description =
+                                [ Plain [] ]
+                            }
+                        , Task
+                            { status = Open
+                            , title = "and y"
+                            , assigned = []
+                            , description = []
+                            }
+                        , Task
+                            { status = Open
+                            , title = "z task"
+                            , assigned = []
+                            , description = []
+                            }
+                        ]
+                    , mScore = Nothing
+                    , updated = Nothing
+                    }
+                , Story
+                    { mJira = Nothing
+                    , title = "Implement Z"
+                    , description =
+                        [ BulletList
+                            [
+                                [ Para
+                                    [ Str "☒"
+                                    , Space
+                                    , Str "completed"
+                                    , Span
+                                        ( ""
+                                        , [ "tc" ]
+                                        , []
+                                        ) [ Space ]
+                                    ]
+                                , BlockQuote
+                                    [ Para
+                                        [ Str "https://localhost" ]
+                                    ]
+                                ]
+                            ,
+                                [ Para
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "todo"
+                                    ]
+                                ]
+                            ]
+                        ]
+                    , tasks =
+                        [ Task
+                            { status = Closed
+                            , title = "completed"
+                            , assigned = [ "tc" ]
+                            , description =
+                                [ Plain []
+                                , BlockQuote
+                                    [ Para
+                                        [ Str "https://localhost" ]
+                                    ]
+                                ]
+                            }
+                        , Task
+                            { status = Open
+                            , title = "todo"
+                            , assigned = []
+                            , description = []
+                            }
+                        ]
+                    , mScore = Nothing
+                    , updated = Nothing
+                    }
+                ]
+            }
+        ]
+    }

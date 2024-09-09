@@ -1,0 +1,47 @@
+Document
+    { intro = []
+    , epics =
+        [ Epic
+            { mJira = Nothing
+            , title = "epic"
+            , description = []
+            , stories =
+                [ Story
+                    { mJira = Just "P-4"
+                    , title = "story"
+                    , description =
+                        [ BulletList
+                            [
+                                [ Plain
+                                    [ Str "☐"
+                                    , Space
+                                    , Str "task"
+                                    , Span
+                                        ( ""
+                                        , [ "end" ]
+                                        , []
+                                        ) [ Space ]
+                                    , SoftBreak
+                                    , Str "note"
+                                    ]
+                                ]
+                            ]
+                        ]
+                    , tasks =
+                        [ Task
+                            { status = Open
+                            , title = "task"
+                            , assigned = [ "end" ]
+                            , description =
+                                [ Plain
+                                    [ Str "note" ]
+                                ]
+                            }
+                        ]
+                    , mScore = Just 42.0
+                    , updated = Just 1725667200
+                    }
+                ]
+            }
+        ]
+    }

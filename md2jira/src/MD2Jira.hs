@@ -1,7 +1,20 @@
-module MD2Jira (Epic (..), Story (..), Task (..), TaskStatus (..), parse, printer, eval, showScore) where
+module MD2Jira (
+    Document (..),
+    Epic (..),
+    Story (..),
+    Task (..),
+    TaskStatus (..),
+    CacheEntry (..),
+    parse,
+    printer,
+    eval,
+    showScore,
 
-import Control.Applicative (many, optional, (<|>))
-import Control.Monad (join, unless, void, when)
+    -- * Test helpers
+    toJira,
+) where
+
+import Control.Monad (forM_, void, when)
 import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
@@ -9,20 +22,41 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Void (Void)
+import Data.Text.Encoding qualified as T
+import Data.Text.Read qualified as T
+import Data.UnixTime (UnixTime (..), formatUnixTimeGMT, getUnixTime, parseUnixTimeGMT)
+import Foreign.C (CTime)
 import GHC.Generics (Generic)
 import Jira (JiraID)
 import Jira qualified
 import Network.HTTP.Client (HttpException)
-import Text.Megaparsec qualified as P
-import Text.Megaparsec.Char.Lexer qualified as P
-import Witch (from)
+import Witch (from, into)
+
+-- pandoc
+import Text.Pandoc.Class qualified as P (runPure)
+import Text.Pandoc.Definition qualified as P
+import Text.Pandoc.Error qualified as P (renderError)
+import Text.Pandoc.Extensions qualified as P
+import Text.Pandoc.Options qualified as P
+import Text.Pandoc.Readers qualified as P
+import Text.Pandoc.Shared qualified as P (stringify)
+import Text.Pandoc.Walk qualified as P (walk)
+import Text.Pandoc.Writers qualified as P
+
+data Document = Document
+    { intro :: [P.Block]
+    -- ^ Any content before the first heading
+    , epics :: [Epic]
+    }
+    deriving (Show)
 
 data Epic = Epic
     { mJira :: Maybe JiraID
-    , info :: Jira.IssueData
+    , title :: Text
+    , description :: [P.Block]
     , stories :: [Story]
     }
     deriving (Eq, Show, Generic)
@@ -31,122 +65,212 @@ instance FromJSON Epic
 
 data Story = Story
     { mJira :: Maybe JiraID
-    , info :: Jira.IssueData
-    , mScore :: Maybe Float
+    , title :: Text
+    , description :: [P.Block]
     , tasks :: [Task]
+    , mScore :: Maybe Float
+    , updated :: Maybe CTime
     }
     deriving (Eq, Show, Generic)
 instance ToJSON Story
 instance FromJSON Story
 
-data TaskStatus = Todo | InProgress {assigned :: Text} | Done
+data TaskStatus = Open | Closed
     deriving (Eq, Show, Generic)
 instance ToJSON TaskStatus
 instance FromJSON TaskStatus
 
--- | TODO: fetch that from the project, it is in the `GET api/2/issue/NAME/transitions` endpoint
-taskTransition :: TaskStatus -> Jira.Transition
-taskTransition = \case
-    Todo -> Jira.Transition 11
-    InProgress{} -> Jira.Transition 21
-    Done -> Jira.Transition 51
-
 data Task = Task
     { status :: TaskStatus
-    , info :: Jira.IssueData
+    , title :: Text
+    , assigned :: [Text]
+    , description :: [P.Block]
     }
     deriving (Eq, Show, Generic)
 instance ToJSON Task
 instance FromJSON Task
 
-type Parser = P.Parsec Void Text
-
--- | Parse a 'Epic'
-epicP :: Parser Epic
-epicP = do
-    void "# "
-    mJira <- optional jiraP
-    info <- issueP (== '#')
-    stories <- many storyP
-    pure $ Epic{mJira, info, stories}
-
--- | Parse a 'Story'
-storyP :: Parser Story
-storyP = do
-    void "## "
-    mJira <- optional jiraP
-    title <- titleP
-    mScore <- scoreP
-    body <- bodyP (`elem` ['#', '-'])
-    let info = Jira.IssueData title body
-    tasks <- many taskP
-    pure $ Story{mJira, info, mScore, tasks}
-
-scoreP :: Parser (Maybe Float)
-scoreP =
-    join <$> P.optional do
-        "\n> Score: " *> P.optional (P.try P.float <|> P.decimal)
-
-issueP :: (Char -> Bool) -> Parser Jira.IssueData
-issueP stopChar = Jira.IssueData <$> titleP <*> bodyP stopChar
-
-taskP :: Parser Task
-taskP = Task <$> statusP <*> issueP (`elem` ['#', '-'])
+-- | Parse a markdown
+parse :: Text -> Either Text Document
+parse inp = case P.runPure (P.readCommonMark opt inp) of
+    Left err -> Left $ P.renderError err
+    Right (P.Pandoc _meta blocks) -> do
+        -- span consumes everything until the first top level heading
+        let (intro, epicBlocks) = span (\case P.Header 1 _ _ -> False; _ -> True) blocks
+        epics <- parseEpics [] epicBlocks
+        pure $ Document intro epics
   where
-    statusP :: Parser TaskStatus
-    statusP =
-        (Done <$ "- [x]")
-            <|> (Todo <$ ("- []" <|> "- [ ]"))
-            <|> (InProgress <$> assignedP)
+    opt = P.def{P.readerExtensions = pandocExts}
 
-assignedP :: Parser Text
-assignedP = "- [" *> P.takeWhile1P (Just "assigned") (/= ']') <* "]"
-
--- | Parse a title
-titleP :: Parser Text
-titleP = P.takeWhile1P (Just "title") (/= '\n')
-
--- | Parse a 'JiraID'
-jiraP :: Parser JiraID
-jiraP = P.try do
-    name <- P.takeWhile1P (Just "jira-id") (\c -> c == '_' || isAsciiUpper c)
-    _ <- "-"
-    (Jira.mkJiraID name <$> P.decimal) <* " "
-
--- | Parse a body, until the next heading.
-bodyP :: (Char -> Bool) -> Parser Text
-bodyP stopChar = go []
+-- | Reformat the document.
+printer :: Document -> Text
+printer doc = case P.runPure (P.writeCommonMark writerOpt pdoc) of
+    Left err -> P.renderError err
+    Right txt -> txt
   where
-    go :: [Text] -> Parser Text
-    go acc = do
-        line <- P.takeWhileP Nothing (/= '\n')
-        cr <- P.optional (P.satisfy (== '\n'))
-        let linecr = case cr of
-                Nothing -> line
-                Just{} -> T.snoc line '\n'
-        isEnd <- P.lookAhead ((True <$ P.satisfy stopChar) <|> P.atEnd)
-        if isEnd
-            then pure $ mconcat $ reverse $ linecr : acc
-            else go (linecr : acc)
+    pdoc = P.Pandoc mempty (doc.intro <> P.walk inlineDanglingSpan body)
+    body = concatMap printerEpic doc.epics
+    -- The writer ignores span attributes, so this convert them to a verbatim string.
+    inlineDanglingSpan = \case
+        P.Span ("", xs, []) [P.Space] -> P.Str $ " {" <> T.unwords (map (mappend ".") xs) <> "}"
+        x -> x
 
-{- | Parse a markdown
+pandocExts :: P.Extensions
+pandocExts =
+    P.extensionsFromList
+        [ -- Decode attributes from '{...}'
+          P.Ext_attributes
+        , -- Decode task list from '- [ ] '
+          P.Ext_task_lists
+        , -- Decode front matter
+          P.Ext_yaml_metadata_block
+        , -- Decode code block
+          P.Ext_backtick_code_blocks
+        , -- Handle raw urls
+          P.Ext_autolink_bare_uris
+        ]
 
->>> parse $ T.unlines ["# RHOS-45 toto", "body", "body2", "## test", "body story", "## testy 2"]
-Right [Epic {mJira = Just "RHOS-45", info = IssueData {summary = "toto", description = "body\nbody2"}, stories = [Story {mJira = Nothing, info = IssueData {summary = "test", description = "body story"}},Story {mJira = Nothing, info = IssueData {summary = "testy 2", description = ""}}]}]
--}
-parse :: FilePath -> Text -> Either String [Epic]
-parse fp inp = case P.parse (P.many epicP <* P.eof) fp inp of
-    Left err -> Left $ P.errorBundlePretty err
-    Right epics -> pure epics
+writerOpt :: P.WriterOptions
+writerOpt = P.def{P.writerExtensions = pandocExts, P.writerWrapText = P.WrapPreserve}
 
-type Cache = Map JiraID (Jira.IssueData, [Task])
+-- | Parse a Jira-ID from the header id
+jiraP :: Text -> Either Text (Maybe JiraID)
+jiraP "" = pure Nothing
+jiraP n =
+    let name = T.takeWhile (\c -> c == '_' || isAsciiUpper c) n
+     in case T.uncons (T.drop (T.length name) n) of
+            Just ('-', rest) | Right (jid, "") <- T.decimal rest -> pure $ Just $ Jira.mkJiraID name jid
+            _ -> Left $ "Bad JiraID: " <> n
+
+-- | Parse the task's date from the header attrs
+dateP :: [(Text, Text)] -> Maybe CTime
+dateP xs = do
+    dateTxt <- lookup "updated" xs
+    case parseUnixTimeGMT "%Y-%m-%d" (T.encodeUtf8 dateTxt) of
+        UnixTime 0 _ -> Nothing
+        UnixTime ts _ -> pure ts
+
+-- | Parse the task's score from the header attrs
+scoreP :: [(Text, Text)] -> Maybe Float
+scoreP xs = do
+    scoreTxt <- lookup "score" xs
+    case T.rational scoreTxt of
+        Right (score, "") -> pure score
+        _ -> Nothing
+
+-- | Parse the epics from the document body, consuming every top heading
+parseEpics :: [Epic] -> [P.Block] -> Either Text [Epic]
+parseEpics acc [] =
+    -- The end of the document
+    pure $ reverse acc
+parseEpics acc (x : rest) = case x of
+    -- A new epic appears
+    P.Header 1 (jiraIdTxt, _, _attrs) htitle -> do
+        mJira <- jiraP jiraIdTxt
+        let title = P.stringify htitle
+            -- span consumes everything until the first second heading
+            (description, storyBlocks) = span (\case P.Header 2 _ _ -> False; _ -> True) rest
+        (stories, remaining) <- parseStories [] storyBlocks
+        -- continue to parse the epics
+        parseEpics (Epic{mJira, title, description, stories} : acc) remaining
+    _ -> Left $ "Invalid epic:" <> showT x <> showT rest
+
+-- | Parse the stories from the epic body, returning the left over content
+parseStories :: [Story] -> [P.Block] -> Either Text ([Story], [P.Block])
+parseStories acc [] =
+    -- The end of the document
+    pure (reverse acc, [])
+parseStories acc (x : rest) = case x of
+    -- A new story appears
+    P.Header 2 (jiraIdTxt, _, attrs) htitle -> do
+        mJira <- jiraP jiraIdTxt
+        let mScore = scoreP attrs
+            updated = dateP attrs
+            title = P.stringify htitle
+            -- span consumes everything until the next story or epic
+            (description, remaining) = span (\case P.Header n _ _ | n < 3 -> False; _ -> True) rest
+            -- extract the tasks from the story's description
+            tasks = foldMap parseStoryBody description
+        parseStories (Story{mJira, title, description, tasks, mScore, updated} : acc) remaining
+    -- A new epic or something else, stop the stories parser
+    _ -> pure (reverse acc, x : rest)
+
+-- | Extract the tasks from bullet list
+parseStoryBody :: P.Block -> [Task]
+parseStoryBody = \case
+    P.BulletList xs -> mapMaybe parseTask xs
+    _ -> []
+  where
+    parseTask :: [P.Block] -> Maybe Task
+    parseTask [] = Nothing
+    parseTask (x : rest) = do
+        (status, line) <- parseTaskTitle x
+        -- span consumes everything until the end of line or the span attribute, e.g. {.TC}
+        let (htitle, remaining) = span (\case P.SoftBreak -> False; P.Span{} -> False; _ -> True) line
+        let title = P.stringify htitle
+            (assigned, description) = case remaining of
+                -- nothing is left after the title
+                [] -> ([], [])
+                -- a span attribute is present, extract the assigned class
+                P.Span (_, as, _) [P.Space] : xs -> (as, P.Plain (trimInline xs) : rest)
+                -- otherwise just append the rest
+                _ -> ([], P.Plain (trimInline remaining) : rest)
+        Just $ Task{title, status, assigned, description}
+
+trimInline :: [P.Inline] -> [P.Inline]
+trimInline = dropWhile \case
+    P.SoftBreak -> True
+    P.Space -> True
+    _ -> False
+
+-- | Extract the task status from a given buletted block
+parseTaskTitle :: P.Block -> Maybe (TaskStatus, [P.Inline])
+parseTaskTitle = \case
+    P.Plain xs -> parseLine xs
+    P.Para xs -> parseLine xs
+    _ -> Nothing
+  where
+    parseLine = \case
+        P.Str statusStr : P.Space : xs -> do
+            status <- parseStatus statusStr
+            pure (status, xs)
+        _ -> Nothing
+
+parseStatus :: Text -> Maybe TaskStatus
+parseStatus = \case
+    "☐" -> pure Open
+    "☒" -> pure Closed
+    _ -> Nothing
+
+-- | Convert a pandoc definitions into a jira markup
+toJira :: [P.Block] -> Text
+toJira blocks = case P.runPure (P.writeJira writerOpt (P.Pandoc mempty body)) of
+    Left err -> P.renderError err
+    Right txt -> txt
+  where
+    body = P.walk removeSpan blocks
+    -- Don't include the span attribute
+    removeSpan = \case
+        P.Span _ [P.Space] -> P.Str ""
+        x -> x
+
+type Cache = Map JiraID CacheEntry
+
+data CacheEntry = CacheEntry
+    { issue :: Jira.IssueData
+    , transition :: Jira.Transition
+    , completed :: Word
+    }
+    deriving (Eq, Show, Generic)
+instance ToJSON CacheEntry
+instance FromJSON CacheEntry
 
 {- | The evaluation action, RWS stands for:
-* Reader, a jira client
+* Reader, the current time
 * Writer, an error log
 * State, the cache
 -}
-type EvalT a = RWS.RWST Jira.JiraClient [Text] Cache IO a
+type EvalT a = RWS.RWST CTime [Text] Cache IO a
 
 {- | This function is the core of md2jira:
 * Create epics/story without ID
@@ -154,14 +278,18 @@ type EvalT a = RWS.RWST Jira.JiraClient [Text] Cache IO a
 
 The function returns the updated issues, cache and a list of errors
 -}
-eval :: (Text -> IO ()) -> Jira.JiraClient -> Text -> [Epic] -> Cache -> IO ([Epic], Cache, [Text])
-eval logger client project epics = RWS.runRWST (mapM goEpic epics) client
+eval :: (Text -> IO ()) -> Jira.JiraClient -> Text -> Document -> Cache -> IO (Document, Cache, [Text])
+eval logger client project doc cache' = do
+    now <- getUnixTime
+    RWS.runRWST (setEpics <$> mapM goEpic doc.epics) now.utSeconds cache'
   where
+    setEpics epics = doc{epics}
     goEpic :: Epic -> EvalT Epic
     goEpic epic = do
+        let epicInfo = Jira.IssueData epic.title (toJira epic.description)
         mJira <- catchHttpError $ case epic.mJira of
-            Nothing -> create [] Jira.Epic epic.info
-            Just jid -> update [] jid epic.info
+            Nothing -> create [] Jira.Epic epicInfo
+            Just jid -> update [] jid epicInfo
         case mJira of
             Nothing -> pure epic
             Just jid -> do
@@ -170,13 +298,29 @@ eval logger client project epics = RWS.runRWST (mapM goEpic epics) client
 
     goStory :: JiraID -> Story -> EvalT Story
     goStory epicID story = do
-        let info = storyData story
+        let info = Jira.IssueData story.title (toJira story.description)
+        updated <- Just <$> storyUpdateDate story
         mJira <- catchHttpError $ case story.mJira of
             Nothing -> create story.tasks (Jira.EpicStory epicID) info
             Just jid -> update story.tasks jid info
         pure $ case mJira of
             Nothing -> story
-            Just{} -> Story mJira story.info story.mScore story.tasks
+            Just{} -> Story mJira story.title story.description story.tasks story.mScore updated
+
+    storyUpdateDate :: Story -> EvalT CTime
+    storyUpdateDate story = case story.mJira of
+        -- This is a new story, use the current date
+        Nothing -> RWS.ask
+        Just jid -> do
+            cache <- RWS.get
+            case Map.lookup jid cache of
+                Just entry
+                    | -- If the number of completed task remained the same, then don't update the date
+                      Just lastUpdate <- story.updated
+                    , entry.completed == storyCompletion story.tasks ->
+                        pure lastUpdate
+                -- otherwise update to the current date
+                _ -> RWS.ask
 
     -- TODO: add retry
     catchHttpError act = catch act \(e :: HttpException) -> do
@@ -185,37 +329,40 @@ eval logger client project epics = RWS.runRWST (mapM goEpic epics) client
 
     update tasks jid issueData = do
         cache <- RWS.get
-        when (Map.lookup jid cache /= Just (issueData, tasks)) do
+        let transition = storyTransition tasks
+        let entry = CacheEntry issueData transition (storyCompletion tasks)
+        when (Map.lookup jid cache /= Just entry) do
             res <- lift do
                 logger $ "Updating " <> from jid
                 Jira.updateIssue client jid issueData
             case res of
                 Nothing -> do
-                    unless (null tasks) $ doTransition cache jid tasks
-                    RWS.modify (Map.insert jid (issueData, tasks))
+                    doTransition jid transition
+                    RWS.modify (Map.insert jid entry)
                 Just err -> RWS.tell ["Failed to update " <> from jid <> ": " <> err]
 
         pure (Just jid)
 
-    doTransition :: Cache -> JiraID -> [Task] -> EvalT ()
-    doTransition cache jid tasks = do
-        let currentTransition = storyTransition tasks
+    doTransition :: JiraID -> Jira.Transition -> EvalT ()
+    doTransition jid currentTransition = do
+        cache <- RWS.get
         let mTransition = case Map.lookup jid cache of
-                Nothing -> Just currentTransition
-                Just (_, prevTasks)
-                    | storyTransition prevTasks /= currentTransition -> Just currentTransition
+                Just (CacheEntry _ prevTransition _)
+                    | -- The transition changed since the last time
+                      prevTransition /= currentTransition ->
+                        Just currentTransition
                     | otherwise -> Nothing
-        void $ catchHttpError do
-            case mTransition of
-                Just transition -> do
-                    res <- lift do
-                        logger $ "Transitioning " <> from jid <> ", to: " <> T.pack (show transition)
-                        Jira.doTransition client jid transition
-                    case res of
-                        Nothing -> pure ()
-                        Just err -> RWS.tell ["Failed to transition " <> from jid <> ": " <> err]
-                Nothing -> pure ()
-            pure Nothing
+                -- This is a new story, perform the transition
+                _ -> Just currentTransition
+        forM_ mTransition \transition ->
+            void $ catchHttpError do
+                res <- lift do
+                    logger $ "Transitioning " <> from jid <> ", to: " <> T.pack (show transition)
+                    Jira.doTransition client jid transition
+                case res of
+                    Nothing -> pure ()
+                    Just err -> RWS.tell ["Failed to transition " <> from jid <> ": " <> err]
+                pure Nothing
 
     create tasks issueType issueData = do
         res <- lift do
@@ -226,34 +373,40 @@ eval logger client project epics = RWS.runRWST (mapM goEpic epics) client
                 RWS.tell ["Failed to create " <> issueData.summary <> ": " <> err]
                 pure Nothing
             Right jid -> do
-                RWS.modify (Map.insert jid (issueData, tasks))
+                let transition = storyTransition tasks
+                    completed = storyCompletion tasks
+                when (transition /= openT) do
+                    -- A new story which already is in progress or completed
+                    doTransition jid transition
+                RWS.modify (Map.insert jid (CacheEntry issueData transition completed))
                 pure (Just jid)
 
 -- | Reformat the document.
-printer :: [Epic] -> Text
-printer = foldMap printEpic
+printerEpic :: Epic -> [P.Block]
+printerEpic epic =
+    (P.Header 1 attr [P.Str epic.title] : epic.description)
+        <> concatMap printerStory epic.stories
   where
-    printEpic :: Epic -> Text
-    printEpic epic =
-        mconcat
-            [ "# " <> printTitle epic.mJira epic.info.summary
-            , epic.info.description
-            , foldMap printStory epic.stories
-            ]
+    attr = (jiraAttr epic.mJira, [], [])
 
-    printStory :: Story -> Text
-    printStory story =
-        mconcat
-            [ "## " <> printTitle story.mJira issueData.summary
-            , maybe "" (mappend "\n> Score: " . T.pack . showScore) story.mScore
-            , issueData.description
-            ]
-      where
-        issueData = storyData story
+printerStory :: Story -> [P.Block]
+printerStory story =
+    P.Header 2 attr [P.Str story.title] : story.description
+  where
+    attr = (jiraAttr story.mJira, [], scoreAttr story.mScore <> dateAttr story.updated)
 
-    printTitle mJira title = printJira mJira <> title
-    printJira Nothing = ""
-    printJira (Just jid) = from jid <> " "
+scoreAttr :: Maybe Float -> [(Text, Text)]
+scoreAttr = \case
+    Just f -> [("score", T.pack (showScore f))]
+    Nothing -> []
+
+dateAttr :: Maybe CTime -> [(Text, Text)]
+dateAttr = \case
+    Nothing -> []
+    Just d -> [("updated", T.decodeUtf8 $ formatUnixTimeGMT "%Y-%m-%d" (UnixTime d 0))]
+
+jiraAttr :: Maybe JiraID -> Text
+jiraAttr = maybe "" into
 
 showScore :: Float -> String
 showScore score =
@@ -262,32 +415,24 @@ showScore score =
             then show @Int f
             else show score
 
-printTask :: Task -> Text
-printTask task =
-    mconcat
-        [ "- " <> printTaskStatus task.status <> task.info.summary
-        , task.info.description
-        ]
-  where
-    printTaskStatus = \case
-        Todo -> "[ ]"
-        InProgress{assigned} -> "[" <> assigned <> "]"
-        Done -> "[x]"
+-- | TODO: fetch that from the project, it is in the `GET api/2/issue/NAME/transitions` endpoint
+openT, wipT, doneT :: Jira.Transition
+openT = Jira.Transition 11
+wipT = Jira.Transition 21
+doneT = Jira.Transition 51
 
--- | Adds the task back into the description
-storyData :: Story -> Jira.IssueData
-storyData story = Jira.IssueData{summary = story.info.summary, description}
-  where
-    description = story.info.description <> foldMap printTask story.tasks
+-- | Return the number of completed task
+storyCompletion :: [Task] -> Word
+storyCompletion = fromIntegral . length . filter (\t -> t.status == Closed)
 
 -- | Get the status of a story given a list of task
 storyTransition :: [Task] -> Jira.Transition
-storyTransition tasks = taskTransition status
+storyTransition tasks
+    | null tasks || allTasksAre Open = openT
+    | allTasksAre Closed = doneT
+    | otherwise = wipT
   where
-    status
-        | allTasksAre Done = Done
-        | allTasksAre Todo = Todo
-        | -- For transition, the assignment is not relevant
-          otherwise =
-            InProgress "."
     allTasksAre s = all (\task -> task.status == s) tasks
+
+showT :: (Show a) => a -> Text
+showT = T.pack . show

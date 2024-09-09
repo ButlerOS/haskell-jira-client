@@ -1,6 +1,10 @@
 cabal-version: 2.2
 name: md2jira
 version:        0.1
+extra-source-files:
+  test/golden/*.golden
+  test/golden/*.md
+
 
 common common
   build-depends:      base <5
@@ -25,7 +29,8 @@ library
   exposed-modules: MD2Jira
   build-depends:
     , aeson
-    , megaparsec
+    , pandoc
+    , pandoc-types
     , containers
     , exceptions
     , transformers
@@ -33,6 +38,7 @@ library
     , jira-client
     , mtl
     , text
+    , unix-time
     , witch
 
 executable md2jira
@@ -47,3 +53,17 @@ executable md2jira
     , bytestring
     , jira-client
     , http-client-tls
+
+test-suite md2jira-test
+  import: common, executable
+  type: exitcode-stdio-1.0
+  build-depends:
+    , text
+    , directory
+    , pretty-simple  <5
+    , tasty          <1.5
+    , tasty-golden   <2.4
+    , tasty-hunit    <0.11
+    , md2jira
+  hs-source-dirs: test
+  main-is: Spec.hs
