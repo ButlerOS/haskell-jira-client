@@ -41,6 +41,7 @@ Document
                 [ Story
                     { mJira = Nothing
                     , title = "Implement X"
+                    , assigned = []
                     , description =
                         [ Para
                             [ Str "The"
@@ -126,6 +127,7 @@ Document
                 , Story
                     { mJira = Nothing
                     , title = "Implement Z"
+                    , assigned = []
                     , description =
                         [ BulletList
                             [
