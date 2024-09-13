@@ -9,6 +9,7 @@ Document
                 [ Story
                     { mJira = Just "P-4"
                     , title = "story"
+                    , assigned = []
                     , description =
                         [ BulletList
                             [

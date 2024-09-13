@@ -66,6 +66,7 @@ instance FromJSON Epic
 data Story = Story
     { mJira :: Maybe JiraID
     , title :: Text
+    , assigned :: [Text]
     , description :: [P.Block]
     , tasks :: [Task]
     , mScore :: Maybe Float
@@ -182,7 +183,7 @@ parseStories acc [] =
     pure (reverse acc, [])
 parseStories acc (x : rest) = case x of
     -- A new story appears
-    P.Header 2 (jiraIdTxt, _, attrs) htitle -> do
+    P.Header 2 (jiraIdTxt, assigned, attrs) htitle -> do
         mJira <- jiraP jiraIdTxt
         let mScore = scoreP attrs
             updated = dateP attrs
@@ -191,7 +192,7 @@ parseStories acc (x : rest) = case x of
             (description, remaining) = span (\case P.Header n _ _ | n < 3 -> False; _ -> True) rest
             -- extract the tasks from the story's description
             tasks = foldMap parseStoryBody description
-        parseStories (Story{mJira, title, description, tasks, mScore, updated} : acc) remaining
+        parseStories (Story{mJira, title, assigned, description, tasks, mScore, updated} : acc) remaining
     -- A new epic or something else, stop the stories parser
     _ -> pure (reverse acc, x : rest)
 
@@ -305,7 +306,7 @@ eval logger client project doc cache' = do
             Just jid -> update story.tasks jid info
         pure $ case mJira of
             Nothing -> story
-            Just{} -> Story mJira story.title story.description story.tasks story.mScore updated
+            Just{} -> Story mJira story.title story.assigned story.description story.tasks story.mScore updated
 
     storyUpdateDate :: Story -> EvalT CTime
     storyUpdateDate story = case story.mJira of
@@ -393,7 +394,7 @@ printerStory :: Story -> [P.Block]
 printerStory story =
     P.Header 2 attr [P.Str story.title] : story.description
   where
-    attr = (jiraAttr story.mJira, [], scoreAttr story.mScore <> dateAttr story.updated)
+    attr = (jiraAttr story.mJira, story.assigned, scoreAttr story.mScore <> dateAttr story.updated)
 
 scoreAttr :: Maybe Float -> [(Text, Text)]
 scoreAttr = \case
