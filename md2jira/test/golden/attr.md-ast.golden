@@ -41,6 +41,7 @@ Document
                         ]
                     , mScore = Just 42.0
                     , updated = Just 1725667200
+                    , priority = Just High
                     }
                 ]
             }

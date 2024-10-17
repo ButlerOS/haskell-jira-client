@@ -123,6 +123,7 @@ Document
                         ]
                     , mScore = Nothing
                     , updated = Nothing
+                    , priority = Nothing
                     }
                 , Story
                     { mJira = Nothing
@@ -177,6 +178,7 @@ Document
                         ]
                     , mScore = Nothing
                     , updated = Nothing
+                    , priority = Nothing
                     }
                 ]
             }
