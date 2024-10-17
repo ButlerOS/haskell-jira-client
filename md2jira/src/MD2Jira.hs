@@ -2,6 +2,7 @@ module MD2Jira (
     Document (..),
     Epic (..),
     Story (..),
+    Priority (..),
     Task (..),
     TaskStatus (..),
     CacheEntry (..),
@@ -71,10 +72,16 @@ data Story = Story
     , tasks :: [Task]
     , mScore :: Maybe Float
     , updated :: Maybe CTime
+    , priority :: Maybe Priority
     }
     deriving (Eq, Show, Generic)
 instance ToJSON Story
 instance FromJSON Story
+
+data Priority = Low | Medium | High
+    deriving (Eq, Show, Generic, Ord)
+instance ToJSON Priority
+instance FromJSON Priority
 
 data TaskStatus = Open | Closed
     deriving (Eq, Show, Generic)
@@ -159,6 +166,14 @@ scoreP xs = do
         Right (score, "") -> pure score
         _ -> Nothing
 
+-- | Parse the story priority from the header attrs
+priorityP :: [(Text, Text)] -> Maybe Priority
+priorityP xs =
+    lookup "prio" xs >>= \case
+        "H" -> Just High
+        "L" -> Just Low
+        _ -> Nothing
+
 -- | Parse the epics from the document body, consuming every top heading
 parseEpics :: [Epic] -> [P.Block] -> Either Text [Epic]
 parseEpics acc [] =
@@ -187,12 +202,13 @@ parseStories acc (x : rest) = case x of
         mJira <- jiraP jiraIdTxt
         let mScore = scoreP attrs
             updated = dateP attrs
+            priority = priorityP attrs
             title = P.stringify htitle
             -- span consumes everything until the next story or epic
             (description, remaining) = span (\case P.Header n _ _ | n < 3 -> False; _ -> True) rest
             -- extract the tasks from the story's description
             tasks = foldMap parseStoryBody description
-        parseStories (Story{mJira, title, assigned, description, tasks, mScore, updated} : acc) remaining
+        parseStories (Story{mJira, title, assigned, description, tasks, mScore, updated, priority} : acc) remaining
     -- A new epic or something else, stop the stories parser
     _ -> pure (reverse acc, x : rest)
 
@@ -306,7 +322,7 @@ eval logger client project doc cache' = do
             Just jid -> update story.tasks jid info
         pure $ case mJira of
             Nothing -> story
-            Just{} -> Story mJira story.title story.assigned story.description story.tasks story.mScore updated
+            Just{} -> Story mJira story.title story.assigned story.description story.tasks story.mScore updated story.priority
 
     storyUpdateDate :: Story -> EvalT CTime
     storyUpdateDate story = case story.mJira of
@@ -394,7 +410,7 @@ printerStory :: Story -> [P.Block]
 printerStory story =
     P.Header 2 attr [P.Str story.title] : story.description
   where
-    attr = (jiraAttr story.mJira, story.assigned, scoreAttr story.mScore <> dateAttr story.updated)
+    attr = (jiraAttr story.mJira, story.assigned, scoreAttr story.mScore <> dateAttr story.updated <> prioAttr story.priority)
 
 scoreAttr :: Maybe Float -> [(Text, Text)]
 scoreAttr = \case
@@ -405,6 +421,12 @@ dateAttr :: Maybe CTime -> [(Text, Text)]
 dateAttr = \case
     Nothing -> []
     Just d -> [("updated", T.decodeUtf8 $ formatUnixTimeGMT "%Y-%m-%d" (UnixTime d 0))]
+
+prioAttr :: Maybe Priority -> [(Text, Text)]
+prioAttr = \case
+    Nothing -> []
+    Just High -> [("prio", "H")]
+    Just Low -> [("prio", "L")]
 
 jiraAttr :: Maybe JiraID -> Text
 jiraAttr = maybe "" into

@@ -127,6 +127,7 @@ Document
                         ]
                     , mScore = Nothing
                     , updated = Nothing
+                    , priority = Nothing
                     }
                 ]
             }
