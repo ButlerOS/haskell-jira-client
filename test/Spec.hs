@@ -30,7 +30,7 @@ testCreateIssue :: TestTree
 testCreateIssue = testCase "createIssue" go
   where
     go = withMockClient $ \client -> do
-        Right jid <- Jira.createIssue client "PROJ" Jira.Story (Jira.IssueData "title" "desc")
+        Right jid <- Jira.createIssue client "PROJ" Jira.Story (Jira.IssueData "title" "desc" Nothing)
         jid @?= Jira.mkJiraID "TEST" 42
 
 testGetIssues :: TestTree

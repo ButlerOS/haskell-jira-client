@@ -229,6 +229,7 @@ issueTypeName = \case
 data IssueData = IssueData
     { summary :: Text
     , description :: Text
+    , assignee :: Maybe Text
     }
     deriving (Eq, Show, Generic)
 instance ToJSON IssueData
@@ -253,6 +254,9 @@ createIssue client project issueType issueData = decodeJiraIDResp <$> jiraReques
         , "description" .= T.strip issueData.description
         , "issuetype" .= object ["name" .= issueTypeName issueType]
         ]
+            <> case issueData.assignee of
+                Just name -> ["assignee" .= object ["name" .= name]]
+                Nothing -> []
             <> case issueType of
                 SubTask jid -> ["parent" .= object ["key" .= into @Text jid]]
                 -- TODO: support custom config

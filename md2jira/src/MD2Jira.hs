@@ -317,11 +317,14 @@ eval logger client project doc cache' = do
     docContainsEpic = case doc.kind of
         FullBacklog -> True
         AssignedStories{} -> False
+    assignee = case doc.kind of
+        FullBacklog -> Nothing
+        AssignedStories name -> Just name
     setEpics epics = doc{epics}
     goEpic :: Epic -> EvalT Epic
     goEpic epic
         | docContainsEpic = do
-            let epicInfo = Jira.IssueData epic.title (toJira epic.description)
+            let epicInfo = Jira.IssueData epic.title (toJira epic.description) assignee
             mJira <- catchHttpError $ case epic.mJira of
                 Nothing -> create [] Jira.Epic epicInfo
                 Just jid -> update [] jid epicInfo
@@ -337,7 +340,7 @@ eval logger client project doc cache' = do
 
     goStory :: Maybe JiraID -> Story -> EvalT Story
     goStory mEpicID story = do
-        let info = Jira.IssueData story.title (toJira story.description)
+        let info = Jira.IssueData story.title (toJira story.description) assignee
         let issueType = maybe Jira.Story Jira.EpicStory mEpicID
         updated <- Just <$> storyUpdateDate story
         mJira <- catchHttpError $ case story.mJira of
