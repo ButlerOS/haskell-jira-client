@@ -2,9 +2,10 @@ cabal-version: 2.2
 name: md2jira
 version:        0.1
 extra-source-files:
-  test/golden/*.golden
   test/golden/*.md
-
+  test/golden/*.md-ast.golden
+  test/golden/*.md-jira.golden
+  test/golden/*.md-round.golden
 
 common common
   build-depends:      base <5

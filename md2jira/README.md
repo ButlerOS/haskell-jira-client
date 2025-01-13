@@ -94,7 +94,7 @@ Then the story can be removed from the file and added to a separate `archive.md`
 Get the toolchain using [ghcup](https://www.haskell.org/ghcup/) and install the command line to `~/.cabal/bin`:
 
 ```
-$ cabal install exe:md2jira
+$ cabal install --installdir=~/.local/bin exe:md2jira
 ```
 
 Write an environment `.env`:
