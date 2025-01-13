@@ -1,5 +1,6 @@
 Document
-    { intro = []
+    { kind = FullBacklog
+    , intro = []
     , epics =
         [ Epic
             { mJira = Nothing

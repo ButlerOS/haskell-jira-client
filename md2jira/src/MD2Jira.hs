@@ -48,10 +48,17 @@ import Text.Pandoc.Walk qualified as P (walk)
 import Text.Pandoc.Writers qualified as P
 
 data Document = Document
-    { intro :: [P.Block]
+    { kind :: DocumentKind
+    -- ^ From the Pandoc Meta
+    , intro :: [P.Block]
     -- ^ Any content before the first heading
     , epics :: [Epic]
     }
+    deriving (Show)
+
+data DocumentKind
+    = FullBacklog
+    | AssignedStories Text
     deriving (Show)
 
 data Epic = Epic
@@ -102,11 +109,15 @@ instance FromJSON Task
 parse :: Text -> Either Text Document
 parse inp = case P.runPure (P.readCommonMark opt inp) of
     Left err -> Left $ P.renderError err
-    Right (P.Pandoc _meta blocks) -> do
+    Right (P.Pandoc meta blocks) -> do
         -- span consumes everything until the first top level heading
         let (intro, epicBlocks) = span (\case P.Header 1 _ _ -> False; _ -> True) blocks
         epics <- parseEpics [] epicBlocks
-        pure $ Document intro epics
+        let kind = case Map.lookup "assigned" meta.unMeta of
+                Just (P.MetaInlines [P.Str s]) -> AssignedStories s
+                Just (P.MetaInlines [P.Link _ [P.Str s] _]) -> AssignedStories s
+                _ -> FullBacklog
+        pure $ Document kind intro epics
   where
     opt = P.def{P.readerExtensions = pandocExts}
 
@@ -114,9 +125,12 @@ parse inp = case P.runPure (P.readCommonMark opt inp) of
 printer :: Document -> Text
 printer doc = case P.runPure (P.writeCommonMark writerOpt pdoc) of
     Left err -> P.renderError err
-    Right txt -> txt
+    Right txt -> addMeta txt
   where
     pdoc = P.Pandoc mempty (doc.intro <> P.walk inlineDanglingSpan body)
+    addMeta = case doc.kind of
+        FullBacklog -> id
+        AssignedStories s -> mappend ("---\nassigned: " <> s <> "\n---\n\n")
     body = concatMap printerEpic doc.epics
     -- The writer ignores span attributes, so this convert them to a verbatim string.
     inlineDanglingSpan = \case
@@ -300,25 +314,34 @@ eval logger client project doc cache' = do
     now <- getUnixTime
     RWS.runRWST (setEpics <$> mapM goEpic doc.epics) now.utSeconds cache'
   where
+    docContainsEpic = case doc.kind of
+        FullBacklog -> True
+        AssignedStories{} -> False
     setEpics epics = doc{epics}
     goEpic :: Epic -> EvalT Epic
-    goEpic epic = do
-        let epicInfo = Jira.IssueData epic.title (toJira epic.description)
-        mJira <- catchHttpError $ case epic.mJira of
-            Nothing -> create [] Jira.Epic epicInfo
-            Just jid -> update [] jid epicInfo
-        case mJira of
-            Nothing -> pure epic
-            Just jid -> do
-                stories <- mapM (goStory jid) epic.stories
-                pure epic{stories, mJira}
+    goEpic epic
+        | docContainsEpic = do
+            let epicInfo = Jira.IssueData epic.title (toJira epic.description)
+            mJira <- catchHttpError $ case epic.mJira of
+                Nothing -> create [] Jira.Epic epicInfo
+                Just jid -> update [] jid epicInfo
+            case mJira of
+                Nothing -> pure epic
+                Just{} -> goEpicStory mJira epic
+        | otherwise = goEpicStory Nothing epic
 
-    goStory :: JiraID -> Story -> EvalT Story
-    goStory epicID story = do
+    goEpicStory :: Maybe JiraID -> Epic -> EvalT Epic
+    goEpicStory mJira epic = do
+        stories <- mapM (goStory mJira) epic.stories
+        pure epic{stories, mJira}
+
+    goStory :: Maybe JiraID -> Story -> EvalT Story
+    goStory mEpicID story = do
         let info = Jira.IssueData story.title (toJira story.description)
+        let issueType = maybe Jira.Story Jira.EpicStory mEpicID
         updated <- Just <$> storyUpdateDate story
         mJira <- catchHttpError $ case story.mJira of
-            Nothing -> create story.tasks (Jira.EpicStory epicID) info
+            Nothing -> create story.tasks issueType info
             Just jid -> update story.tasks jid info
         pure $ case mJira of
             Nothing -> story

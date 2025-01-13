@@ -1,0 +1,41 @@
+Document
+    { kind = AssignedStories "user@corp"
+    , intro =
+        [ Para
+            [ Str "This"
+            , Space
+            , Str "is"
+            , Space
+            , Str "my"
+            , Space
+            , Str "backlog."
+            ]
+        ]
+    , epics =
+        [ Epic
+            { mJira = Nothing
+            , title = "Develop app"
+            , description = []
+            , stories =
+                [ Story
+                    { mJira = Nothing
+                    , title = "Implement X"
+                    , assigned = []
+                    , description =
+                        [ Para
+                            [ Str "The"
+                            , Space
+                            , Str "goal"
+                            , Space
+                            , Str "is..."
+                            ]
+                        ]
+                    , tasks = []
+                    , mScore = Nothing
+                    , updated = Nothing
+                    , priority = Nothing
+                    }
+                ]
+            }
+        ]
+    }
