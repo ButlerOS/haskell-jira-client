@@ -425,6 +425,7 @@ dateAttr = \case
 prioAttr :: Maybe Priority -> [(Text, Text)]
 prioAttr = \case
     Nothing -> []
+    Just Medium -> []
     Just High -> [("prio", "H")]
     Just Low -> [("prio", "L")]
 
