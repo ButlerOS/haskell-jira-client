@@ -13,6 +13,7 @@
         md2jira = hpPrev.callCabal2nix "md2jira" "${self}/md2jira" { };
       };
       hsPkgs = pkgs.hspkgs.extend haskellExtend;
+      pkg-exe = pkgs.haskell.lib.justStaticExecutables hsPkgs.md2jira;
 
       baseTools = with pkgs; [
         cabal-gild
@@ -25,6 +26,7 @@
       ];
 
     in {
+      packages."x86_64-linux".default = pkg-exe;
       devShells."x86_64-linux".ci = hsPkgs.shellFor {
         packages = p: [ p.jira-client p.md2jira ];
         buildInputs = baseTools;
