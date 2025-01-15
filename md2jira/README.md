@@ -67,31 +67,13 @@ Re-run `md2jira` at any points to synchronize the file content, the command is i
 An entry without an identifier will be created, otherwise it is updated.
 The tool perform one-way push synchronization: the Jira data is not pulled.
 
-**Plan the work**
-
-Define what needs to be done next by marking the actionable items:
-
-```markdown
-- [ ] a task to be completed next {.n}
-- [ ] a task in progress assigned to {.TC}
-```
-
-**Do the work**
-
-Once a task is complete, mark the the item and add a comment:
-
-```markdown
-- [x] a completed task {.TC}
-  > here is the $change_url
-```
-
 Once all the tasks are done, run `md2jira` one more time to close the story.
 Then the story can be removed from the file and added to a separate `archive.md`.
 
 
 ## Usage
 
-Get the toolchain using [ghcup](https://www.haskell.org/ghcup/) and install the command line to `~/.cabal/bin`:
+Get the toolchain using [ghcup](https://www.haskell.org/ghcup/) and install the command line:
 
 ```
 $ cabal install --installdir=~/.local/bin exe:md2jira
@@ -119,25 +101,12 @@ $ cabal run exe:md2jira -- --help
 ```
 
 
-## Integration with etherpad
-
-Here is a one-liner to maintain your backlog in etherpad:
-
-```
-$ curl https://etherpad.example.com/project-backlog/export/txt | md2jira > update.md \
- && curl "http://etherpad.example.com/api/1/setText?apikey=$PAD_TOKEN&padID=project-backlog" \
-    --data-urlencode "text=$(cat update.md)"
-```
-
 ## Contribute
 
 Feel free to report issues and propose new features. Run the `./bin/run-tests` at the top of the project to validate your changes.
 
 Roadmap:
 
-- [x] Handle story status, e.g. no `[x]` means open, one tick means in-progress, all-ticked means completed.
-- [ ] Implement a `--list` command to list the planned and completed tasks with their links to their stories.
-- [ ] Support custom transition (see 'taskTransition').
-- [ ] Support sub-task, e.g. with `###` third heading
+- [ ] Support story status
 - [ ] Manage assignment, e.g. by adding user-id after the heading
-- [x] Provide a custom editor with quill-ot to handle outline folding (see: [butler#61](https://github.com/ButlerOS/haskell-butler/pull/61))
+- [ ] Support sub-task, e.g. with `###` third heading
