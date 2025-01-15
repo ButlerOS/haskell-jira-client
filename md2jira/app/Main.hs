@@ -9,7 +9,7 @@ import Data.Text.IO qualified as T
 import Jira (newJiraClient)
 import MD2Jira (eval, parse, printer)
 import Network.HTTP.Client.TLS (newTlsManager)
-import System.Directory (doesPathExist)
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesPathExist, getXdgDirectory)
 import System.Environment (getArgs, getEnv)
 import System.Exit (exitFailure)
 
@@ -30,13 +30,13 @@ main =
   where
     go doc = do
         project <- T.pack <$> getEnv "JIRA_PROJECT"
+        cachePath <- getCachePath
         client <- mkClient
-        cache <- loadCache
-        let logger _ = pure ()
+        cache <- loadCache cachePath
+        let logger = T.putStrLn
         (newDoc, newCache, errors) <- eval logger client project doc cache
-        T.putStrLn $ printer newDoc
         let updated = cache /= newCache
-        when updated $ encodeFile ".cache.json" newCache
+        when updated $ encodeFile cachePath newCache
         case errors of
             []
                 | updated -> pure $ printer newDoc
@@ -48,9 +48,14 @@ main =
         token <- BS.pack <$> getEnv "JIRA_TOKEN"
         Jira.newJiraClient url Nothing token <$> newTlsManager
 
-    loadCache =
-        doesPathExist ".cache.json" >>= \case
+    loadCache path =
+        doesPathExist path >>= \case
             False -> pure mempty
-            True -> either error id <$> eitherDecodeFileStrict ".cache.json"
+            True -> either error id <$> eitherDecodeFileStrict path
+
+    getCachePath = do
+        xdgDir <- getXdgDirectory XdgCache ""
+        createDirectoryIfMissing True xdgDir
+        pure $ xdgDir <> "/md2jira.json"
 
     die msg = T.putStrLn msg >> exitFailure
