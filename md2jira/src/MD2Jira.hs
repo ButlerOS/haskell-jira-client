@@ -20,7 +20,6 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -190,7 +189,7 @@ parseStories acc (x : rest) = case x of
 
 -- | Convert a pandoc definitions into a jira markup
 toJira :: [P.Block] -> Text
-toJira blocks = case P.runPure (P.writeJira writerOpt (P.Pandoc mempty body)) of
+toJira blocks = T.stripEnd $ case P.runPure (P.writeJira writerOpt (P.Pandoc mempty body)) of
     Left err -> P.renderError err
     Right txt -> txt
   where
@@ -297,7 +296,7 @@ issueToData :: Jira.JiraIssue -> Jira.IssueData
 issueToData issue =
     Jira.IssueData
         { summary = issue.summary
-        , description = fromMaybe "" issue.description
+        , description = maybe mempty T.stripEnd issue.description
         , assignee = issue.assignee
         }
 
