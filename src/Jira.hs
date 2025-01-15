@@ -116,10 +116,12 @@ data JiraIssue = JiraIssue
     { project :: Text
     , name :: JiraID
     , issueType :: Text
+    , status :: Text
     , updated :: UTCTime
     , description :: Maybe Text
     , summary :: Text
     , score :: Maybe Float
+    , assignee :: Maybe Text
     }
     deriving (Show, Generic, ToJSON)
 
@@ -129,8 +131,10 @@ decodeIssue client v = do
     fields <- (v ^? key "fields") `pDie` "Can't find fields"
     project <- (fields ^? key "project" . key "key" . _String) `pDie` "Can't find project.key"
     issueType <- (fields ^? key "issuetype" . key "name" . _String) `pDie` "Can't find issuetype.name"
+    status <- (fields ^? key "status" . key "name" . _String) `pDie` "Can't find status"
     updated <- (parseJiraTime =<< fields ^? key "updated" . _String) `pDie` "Can't find updated"
     let description = fields ^? key "description" . _String
+    let assignee = fields ^? key "assignee" . key "name" . _String
     summary <- (fields ^? key "summary" . _String) `pDie` "Can't find summary"
     let score = do
             scoreMaybeNan <- fields ^? key client.issueScoreKey . _JSON
@@ -210,7 +214,7 @@ searchIssuesInfo :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSear
 searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
 
 searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
-searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String $ Key.toText client.issueScoreKey] client
+searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String "assignee", String $ Key.toText client.issueScoreKey] client
 
 newtype Transition = Transition Word
     deriving (Generic)
