@@ -1,5 +1,5 @@
 Document
-    { kind = FullBacklog
+    { config = EmptyConfig
     , intro =
         [ Para
             [ Str "Document"
@@ -42,7 +42,6 @@ Document
                 [ Story
                     { mJira = Nothing
                     , title = "Implement X"
-                    , assigned = []
                     , description =
                         [ Para
                             [ Str "The"
@@ -101,35 +100,12 @@ Document
                                 ]
                             ]
                         ]
-                    , tasks =
-                        [ Task
-                            { status = Open
-                            , title = "do x"
-                            , assigned = [ "n" ]
-                            , description =
-                                [ Plain [] ]
-                            }
-                        , Task
-                            { status = Open
-                            , title = "and y"
-                            , assigned = []
-                            , description = []
-                            }
-                        , Task
-                            { status = Open
-                            , title = "z task"
-                            , assigned = []
-                            , description = []
-                            }
-                        ]
                     , mScore = Nothing
                     , updated = Nothing
-                    , priority = Nothing
                     }
                 , Story
                     { mJira = Nothing
                     , title = "Implement Z"
-                    , assigned = []
                     , description =
                         [ BulletList
                             [
@@ -157,29 +133,8 @@ Document
                                 ]
                             ]
                         ]
-                    , tasks =
-                        [ Task
-                            { status = Closed
-                            , title = "completed"
-                            , assigned = [ "tc" ]
-                            , description =
-                                [ Plain []
-                                , BlockQuote
-                                    [ Para
-                                        [ Str "https://localhost" ]
-                                    ]
-                                ]
-                            }
-                        , Task
-                            { status = Open
-                            , title = "todo"
-                            , assigned = []
-                            , description = []
-                            }
-                        ]
                     , mScore = Nothing
                     , updated = Nothing
-                    , priority = Nothing
                     }
                 ]
             }

@@ -1,5 +1,5 @@
 Document
-    { kind = AssignedStories "user@corp"
+    { config = EmptyConfig
     , intro =
         [ Para
             [ Str "This"
@@ -20,7 +20,6 @@ Document
                 [ Story
                     { mJira = Nothing
                     , title = "Implement X"
-                    , assigned = []
                     , description =
                         [ Para
                             [ Str "The"
@@ -30,10 +29,8 @@ Document
                             , Str "is..."
                             ]
                         ]
-                    , tasks = []
                     , mScore = Nothing
                     , updated = Nothing
-                    , priority = Nothing
                     }
                 ]
             }

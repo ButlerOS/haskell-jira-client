@@ -1,5 +1,5 @@
 Document
-    { kind = FullBacklog
+    { config = EmptyConfig
     , intro = []
     , epics =
         [ Epic
@@ -10,7 +10,6 @@ Document
                 [ Story
                     { mJira = Nothing
                     , title = "story"
-                    , assigned = []
                     , description =
                         [ BulletList
                             [
@@ -86,49 +85,8 @@ Document
                                 ]
                             ]
                         ]
-                    , tasks =
-                        [ Task
-                            { status = Open
-                            , title = "a task"
-                            , assigned = []
-                            , description =
-                                [ Plain
-                                    [ Str "with"
-                                    , Space
-                                    , Str "left"
-                                    , Space
-                                    , Str "over"
-                                    ]
-                                ]
-                            }
-                        , Task
-                            { status = Open
-                            , title = "a task"
-                            , assigned = []
-                            , description =
-                                [ Plain
-                                    [ Str "with"
-                                    , Space
-                                    , Str "right"
-                                    ]
-                                ]
-                            }
-                        , Task
-                            { status = Open
-                            , title = "a task"
-                            , assigned = []
-                            , description = []
-                            }
-                        , Task
-                            { status = Open
-                            , title = "a task"
-                            , assigned = []
-                            , description = []
-                            }
-                        ]
                     , mScore = Nothing
                     , updated = Nothing
-                    , priority = Nothing
                     }
                 ]
             }

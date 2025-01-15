@@ -1,5 +1,5 @@
 Document
-    { kind = FullBacklog
+    { config = EmptyConfig
     , intro = []
     , epics =
         [ Epic
@@ -10,7 +10,6 @@ Document
                 [ Story
                     { mJira = Just "P-4"
                     , title = "story"
-                    , assigned = []
                     , description =
                         [ BulletList
                             [
@@ -29,20 +28,8 @@ Document
                                 ]
                             ]
                         ]
-                    , tasks =
-                        [ Task
-                            { status = Open
-                            , title = "task"
-                            , assigned = [ "end" ]
-                            , description =
-                                [ Plain
-                                    [ Str "note" ]
-                                ]
-                            }
-                        ]
                     , mScore = Just 42.0
                     , updated = Just 1725667200
-                    , priority = Just High
                     }
                 ]
             }
