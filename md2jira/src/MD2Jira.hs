@@ -6,16 +6,17 @@ module MD2Jira (
     parse,
     printer,
     eval,
-    showScore,
+    showPoints,
 
     -- * Test helpers
     toJira,
 ) where
 
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (runExceptT, throwE)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
@@ -67,19 +68,19 @@ data Epic = Epic
     , stories :: [Story]
     }
     deriving (Eq, Show, Generic)
-instance ToJSON Epic
-instance FromJSON Epic
+
+data StoryStatus = Todo | WIP | Done
+    deriving (Eq, Show, Generic)
 
 data Story = Story
     { mJira :: Maybe JiraID
     , title :: Text
+    , status :: Maybe StoryStatus
     , description :: [P.Block]
-    , mScore :: Maybe Float
+    , points :: Maybe Float
     , updated :: Maybe CTime
     }
     deriving (Eq, Show, Generic)
-instance ToJSON Story
-instance FromJSON Story
 
 -- | Parse a markdown
 parse :: Text -> Either Text Document
@@ -136,6 +137,13 @@ jiraP n =
             Just ('-', rest) | Right (jid, "") <- T.decimal rest -> pure $ Just $ Jira.mkJiraID name jid
             _ -> Left $ "Bad JiraID: " <> n
 
+statusP :: Text -> Either Text StoryStatus
+statusP = \case
+    "todo" -> Right Todo
+    "wip" -> Right WIP
+    "done" -> Right Done
+    e -> Left $ "Unknown status: " <> e
+
 -- | Parse the task's date from the header attrs
 dateP :: [(Text, Text)] -> Maybe CTime
 dateP xs = do
@@ -144,12 +152,12 @@ dateP xs = do
         UnixTime 0 _ -> Nothing
         UnixTime ts _ -> pure ts
 
--- | Parse the task's score from the header attrs
-scoreP :: [(Text, Text)] -> Maybe Float
-scoreP xs = do
-    scoreTxt <- lookup "score" xs
-    case T.rational scoreTxt of
-        Right (score, "") -> pure score
+-- | Parse the task's points from the header attrs
+pointsP :: [(Text, Text)] -> Maybe Float
+pointsP xs = do
+    pointsTxt <- lookup "points" xs
+    case T.rational pointsTxt of
+        Right (points, "") -> pure points
         _ -> Nothing
 
 -- | Parse the epics from the document body, consuming every top heading
@@ -178,12 +186,15 @@ parseStories acc (x : rest) = case x of
     -- A new story appears
     P.Header 2 (jiraIdTxt, _, attrs) htitle -> do
         mJira <- jiraP jiraIdTxt
-        let mScore = scoreP attrs
+        status <- case lookup "status" attrs of
+            Nothing -> pure Nothing
+            Just n -> Just <$> statusP n
+        let points = pointsP attrs
             updated = dateP attrs
             title = P.stringify htitle
             -- span consumes everything until the next story or epic
             (description, remaining) = span (\case P.Header n _ _ | n < 3 -> False; _ -> True) rest
-        parseStories (Story{mJira, title, description, mScore, updated} : acc) remaining
+        parseStories (Story{mJira, title, status, description, points, updated} : acc) remaining
     -- A new epic or something else, stop the stories parser
     _ -> pure (reverse acc, x : rest)
 
@@ -203,6 +214,8 @@ type Cache = Map JiraID CacheEntry
 
 data CacheEntry = CacheEntry
     { issue :: Jira.IssueData
+    , status :: Maybe Text
+    , score :: Maybe Float
     }
     deriving (Eq, Show, Generic)
 instance ToJSON CacheEntry
@@ -234,7 +247,7 @@ eval logger client project doc cache' = do
             let epicInfo = Jira.IssueData epic.title (toJira epic.description) Nothing
             mJira <- catchHttpError $ case epic.mJira of
                 Nothing -> create Jira.Epic epicInfo
-                Just jid -> update jid epicInfo
+                Just jid -> update jid epicInfo Nothing Nothing
             case mJira of
                 Nothing -> pure epic
                 Just{} -> goEpicStory mJira epic
@@ -250,35 +263,50 @@ eval logger client project doc cache' = do
         let issueType = maybe Jira.Story Jira.EpicStory mEpicID
         mJira <- catchHttpError $ case story.mJira of
             Nothing -> create issueType info
-            Just jid -> update jid info
+            Just jid -> update jid info story.status story.points
         pure $ case mJira of
             Nothing -> story
-            Just{} -> Story mJira story.title story.description story.mScore story.updated
+            Just{} -> Story mJira story.title story.status story.description story.points story.updated
 
     -- TODO: add retry
     catchHttpError act = catch act \(e :: HttpException) -> do
         RWS.tell ["Network request failed: " <> T.pack (show e)]
         pure Nothing
 
-    update jid issueData = do
+    update jid issueData mStatus mPoints = do
         cache <- RWS.get
-        let entry = CacheEntry issueData
+        let entry = CacheEntry issueData (statusName <$> mStatus) mPoints
         when (Map.lookup jid cache /= Just entry) do
-            res <- lift do
-                logger $ "Check if cache is up-to-date for " <> from jid
-                Jira.getIssue client jid >>= \case
-                    Left e -> pure $ Just $ "Couldn't read: " <> e
-                    Right issue
-                        | issueToData issue == issueData -> pure Nothing
-                        | otherwise -> do
-                            logger $ "Updating " <> from jid
-                            Jira.updateIssue client jid issueData
+            res <- lift $ runExceptT do
+                lift $ logger $ from jid <> ": check if cache is up-to-date"
+                issue <-
+                    lift (Jira.getIssue client jid) >>= \case
+                        Left e -> throwE $ "Couldn't read: " <> e
+                        Right issue -> pure issue
+                case mStatus of
+                    Just status
+                        | statusName status /= issue.status -> do
+                            updateJira jid "status" $ Jira.doTransition client jid $ issueTransition status
+                    _ -> pure ()
+                case mPoints of
+                    Just points | Just points /= issue.score -> do
+                        updateJira jid "points" $ Jira.setIssueScore client jid points
+                    _ -> pure ()
+
+                unless (issueToData issue == issueData) do
+                    updateJira jid "description" $ Jira.updateIssue client jid issueData
+
             case res of
-                Nothing -> do
-                    RWS.modify (Map.insert jid entry)
-                Just err -> RWS.tell ["Failed to update " <> from jid <> ": " <> err]
+                Right () -> RWS.modify (Map.insert jid entry)
+                Left err -> RWS.tell ["Failed to update " <> from jid <> ": " <> err]
 
         pure (Just jid)
+
+    updateJira jid name action = do
+        lift $ logger $ from jid <> ": update " <> name
+        lift action >>= \case
+            Just err -> throwE $ name <> " update failed: " <> err
+            Nothing -> pure ()
 
     create issueType issueData = do
         res <- lift do
@@ -289,8 +317,21 @@ eval logger client project doc cache' = do
                 RWS.tell ["Failed to create " <> issueData.summary <> ": " <> err]
                 pure Nothing
             Right jid -> do
-                RWS.modify (Map.insert jid (CacheEntry issueData))
+                RWS.modify (Map.insert jid (CacheEntry issueData Nothing Nothing))
                 pure (Just jid)
+
+-- | TODO: fetch that from the project, it is in the `GET api/2/issue/NAME/transitions` endpoint
+issueTransition :: StoryStatus -> Jira.Transition
+issueTransition = \case
+    Todo -> Jira.Transition 11
+    WIP -> Jira.Transition 21
+    Done -> Jira.Transition 51
+
+statusName :: StoryStatus -> Text
+statusName = \case
+    Todo -> "To Do"
+    WIP -> "In Progress"
+    Done -> "Closed"
 
 issueToData :: Jira.JiraIssue -> Jira.IssueData
 issueToData issue =
@@ -312,11 +353,21 @@ printerStory :: Story -> [P.Block]
 printerStory story =
     P.Header 2 attr [P.Str story.title] : story.description
   where
-    attr = (jiraAttr story.mJira, [], scoreAttr story.mScore <> dateAttr story.updated)
+    attr = (jiraAttr story.mJira, [], pointsAttr story.points <> dateAttr story.updated <> statusAttr story.status)
 
-scoreAttr :: Maybe Float -> [(Text, Text)]
-scoreAttr = \case
-    Just f -> [("score", T.pack (showScore f))]
+statusAttr :: Maybe StoryStatus -> [(Text, Text)]
+statusAttr = \case
+    Just status ->
+        let s = case status of
+                Todo -> "todo"
+                WIP -> "wip"
+                Done -> "done"
+         in [("status", s)]
+    Nothing -> []
+
+pointsAttr :: Maybe Float -> [(Text, Text)]
+pointsAttr = \case
+    Just f -> [("points", T.pack (showPoints f))]
     Nothing -> []
 
 dateAttr :: Maybe CTime -> [(Text, Text)]
@@ -327,12 +378,12 @@ dateAttr = \case
 jiraAttr :: Maybe JiraID -> Text
 jiraAttr = maybe "" into
 
-showScore :: Float -> String
-showScore score =
-    let f = floor score
-     in if f == ceiling score
+showPoints :: Float -> String
+showPoints points =
+    let f = floor points
+     in if f == ceiling points
             then show @Int f
-            else show score
+            else show points
 
 showT :: (Show a) => a -> Text
 showT = T.pack . show

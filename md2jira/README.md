@@ -107,6 +107,6 @@ Feel free to report issues and propose new features. Run the `./bin/run-tests` a
 
 Roadmap:
 
-- [ ] Support story status
+- [x] Support story status
 - [ ] Manage assignment, e.g. by adding user-id after the heading
 - [ ] Support sub-task, e.g. with `###` third heading

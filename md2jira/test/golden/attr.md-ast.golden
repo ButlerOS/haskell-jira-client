@@ -10,6 +10,7 @@ Document
                 [ Story
                     { mJira = Just "P-4"
                     , title = "story"
+                    , status = Nothing
                     , description =
                         [ BulletList
                             [
@@ -28,7 +29,7 @@ Document
                                 ]
                             ]
                         ]
-                    , mScore = Just 42.0
+                    , points = Just 42.0
                     , updated = Just 1725667200
                     }
                 ]

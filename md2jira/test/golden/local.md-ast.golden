@@ -20,6 +20,7 @@ Document
                 [ Story
                     { mJira = Nothing
                     , title = "Implement X"
+                    , status = Nothing
                     , description =
                         [ Para
                             [ Str "The"
@@ -29,7 +30,7 @@ Document
                             , Str "is..."
                             ]
                         ]
-                    , mScore = Nothing
+                    , points = Nothing
                     , updated = Nothing
                     }
                 ]

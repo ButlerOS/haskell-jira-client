@@ -42,6 +42,7 @@ Document
                 [ Story
                     { mJira = Nothing
                     , title = "Implement X"
+                    , status = Nothing
                     , description =
                         [ Para
                             [ Str "The"
@@ -100,12 +101,13 @@ Document
                                 ]
                             ]
                         ]
-                    , mScore = Nothing
+                    , points = Nothing
                     , updated = Nothing
                     }
                 , Story
                     { mJira = Nothing
                     , title = "Implement Z"
+                    , status = Nothing
                     , description =
                         [ BulletList
                             [
@@ -133,7 +135,7 @@ Document
                                 ]
                             ]
                         ]
-                    , mScore = Nothing
+                    , points = Nothing
                     , updated = Nothing
                     }
                 ]
