@@ -20,6 +20,7 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -265,8 +266,14 @@ eval logger client project doc cache' = do
         let entry = CacheEntry issueData
         when (Map.lookup jid cache /= Just entry) do
             res <- lift do
-                logger $ "Updating " <> from jid
-                Jira.updateIssue client jid issueData
+                logger $ "Check if cache is up-to-date for " <> from jid
+                Jira.getIssue client jid >>= \case
+                    Left e -> pure $ Just $ "Couldn't read: " <> e
+                    Right issue
+                        | issueToData issue == issueData -> pure Nothing
+                        | otherwise -> do
+                            logger $ "Updating " <> from jid
+                            Jira.updateIssue client jid issueData
             case res of
                 Nothing -> do
                     RWS.modify (Map.insert jid entry)
@@ -285,6 +292,14 @@ eval logger client project doc cache' = do
             Right jid -> do
                 RWS.modify (Map.insert jid (CacheEntry issueData))
                 pure (Just jid)
+
+issueToData :: Jira.JiraIssue -> Jira.IssueData
+issueToData issue =
+    Jira.IssueData
+        { summary = issue.summary
+        , description = fromMaybe "" issue.description
+        , assignee = issue.assignee
+        }
 
 -- | Reformat the document.
 printerEpic :: Epic -> [P.Block]
