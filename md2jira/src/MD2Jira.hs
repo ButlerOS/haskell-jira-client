@@ -77,9 +77,6 @@ data Epic = Epic
     }
     deriving (Eq, Show, Generic)
 
-data StoryStatus = Todo | WIP | Done
-    deriving (Eq, Show, Generic)
-
 data Story = Story
     { mJira :: Maybe JiraID
     , title :: Text
@@ -353,32 +350,43 @@ eval logger client project doc cache' = do
                 RWS.modify (Map.insert jid (CacheEntry issueData Nothing Nothing))
                 pure (Just jid)
 
--- | TODO: fetch that from the project, it is in the `GET api/2/issue/NAME/transitions` endpoint
+data StoryStatus = Backlog | Todo | WIP | Review | Done
+    deriving (Eq, Show, Generic)
+
+-- | TODO: fetch that from the project, it is in the `GET /rest/api/2/issue/NAME/transitions` endpoint
 issueTransition :: StoryStatus -> Jira.Transition
 issueTransition = \case
-    Todo -> Jira.Transition 11
-    WIP -> Jira.Transition 21
-    Done -> Jira.Transition 51
+    Backlog -> Jira.Transition 21
+    Todo -> Jira.Transition 31
+    WIP -> Jira.Transition 41
+    Review -> Jira.Transition 51
+    Done -> Jira.Transition 61
 
 statusName :: StoryStatus -> Text
 statusName = \case
+    Backlog -> "Backlog"
     Todo -> "To Do"
     WIP -> "In Progress"
+    Review -> "Review"
     Done -> "Closed"
 
 -- Note: don't forget to update the 'statusP' parser if the StoryStatus data type changes!
 statusShortName :: StoryStatus -> Text
 statusShortName = \case
+    Backlog -> "backlog"
     Todo -> "todo"
     WIP -> "wip"
+    Review -> "review"
     Done -> "done"
 
 -- | Parse the story's status from the header attrs
 statusP :: Text -> Either Text StoryStatus
 statusP = \case
+    "backlog" -> Right Backlog
     "todo" -> Right Todo
     "wip" -> Right WIP
     "done" -> Right Done
+    "review" -> Right Review
     e -> Left $ "Unknown status: " <> e
 
 -- | Convert a remote issue to the local cache format to check if it needs to be updated.
