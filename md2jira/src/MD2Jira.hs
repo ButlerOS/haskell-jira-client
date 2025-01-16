@@ -12,11 +12,11 @@ module MD2Jira (
     toJira,
 ) where
 
-import Control.Monad (unless, when)
+import Control.Monad (when)
 import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Except (runExceptT, throwE)
+import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
@@ -36,6 +36,8 @@ import Network.HTTP.Client (HttpException)
 import Witch (from, into)
 
 -- pandoc
+
+import Data.Foldable (forM_)
 import Text.Pandoc.Class qualified as P (runPure)
 import Text.Pandoc.Definition qualified as P
 import Text.Pandoc.Error qualified as P (renderError)
@@ -92,14 +94,8 @@ data Story = Story
 -- | Parse a markdown
 parse :: Text -> Either Text Document
 parse inp = do
-    (config, inpBody) <-
-        if "---" `T.isPrefixOf` inp
-            then case span (/= "---") (T.lines (T.drop 3 inp)) of
-                (header, "---" : body) -> case YAML.decodeEither' (T.encodeUtf8 $ T.unlines header) of
-                    Left e -> Left $ "Header decoding error: " <> T.pack (show e)
-                    Right conf -> pure (conf, T.unlines body)
-                v -> Left $ "Couldn't find header:" <> T.pack (show v)
-            else pure (DocumentConfig Nothing, inp)
+    (inpBody, mConfig) <- parseFrontMatter inp
+    let config = fromMaybe (DocumentConfig mempty) mConfig
     case P.runPure (P.readCommonMark opt inpBody) of
         Left err -> Left $ P.renderError err
         Right (P.Pandoc _ blocks) -> do
@@ -110,14 +106,24 @@ parse inp = do
   where
     opt = P.def{P.readerExtensions = pandocExts}
 
+-- | Consume the front matter and return the document body
+parseFrontMatter :: (FromJSON a) => Text -> Either Text (Text, Maybe a)
+parseFrontMatter inp
+    | "---" `T.isPrefixOf` inp = case span (/= "---") (T.lines (T.drop 3 inp)) of
+        (header, "---" : body) -> case YAML.decodeEither' (T.encodeUtf8 $ T.unlines header) of
+            Left e -> Left $ "Header decoding error: " <> T.pack (show e)
+            Right conf -> pure (T.unlines body, Just conf)
+        v -> Left $ "Couldn't find header:" <> T.pack (show v)
+    | otherwise = Right (inp, Nothing)
+
 -- | Reformat the document.
 printer :: Document -> Text
 printer doc = case P.runPure (P.writeCommonMark writerOpt pdoc) of
     Left err -> P.renderError err
-    Right txt -> addMeta txt
+    Right txt -> addFrontMatter txt
   where
     pdoc = P.Pandoc mempty (doc.intro <> P.walk inlineDanglingSpan body)
-    addMeta
+    addFrontMatter
         | doc.config.users == mempty = id
         | otherwise = mappend ("---\n" <> T.decodeUtf8 (YAML.encode doc.config) <> "---\n\n")
 
@@ -153,13 +159,6 @@ jiraP n =
      in case T.uncons (T.drop (T.length name) n) of
             Just ('-', rest) | Right (jid, "") <- T.decimal rest -> pure $ Just $ Jira.mkJiraID name jid
             _ -> Left $ "Bad JiraID: " <> n
-
-statusP :: Text -> Either Text StoryStatus
-statusP = \case
-    "todo" -> Right Todo
-    "wip" -> Right WIP
-    "done" -> Right Done
-    e -> Left $ "Unknown status: " <> e
 
 -- | Parse the task's date from the header attrs
 dateP :: [(Text, Text)] -> Maybe CTime
@@ -260,7 +259,7 @@ eval logger client project doc cache' = do
     setEpics epics = doc{epics}
     goEpic :: Epic -> EvalT Epic
     goEpic epic
-        | "Without Epic" `T.isInfixOf` epic.title = goEpicStory Nothing epic
+        | "without epic" `T.isInfixOf` T.toLower epic.title = goEpicStory Nothing epic
         | otherwise = do
             let epicInfo = Jira.IssueData epic.title (toJira epic.description) Nothing
             mJira <- catchHttpError $ case epic.mJira of
@@ -286,6 +285,7 @@ eval logger client project doc cache' = do
             Nothing -> story
             Just{} -> Story mJira story.title story.status story.description story.assignee story.points story.updated
 
+    withAssignee :: Story -> (Maybe Text -> EvalT Story) -> EvalT Story
     withAssignee story cb = case story.assignee of
         Just assignee -> case Map.lookup assignee (fromMaybe mempty doc.config.users) of
             Just username -> cb $ Just username
@@ -295,31 +295,36 @@ eval logger client project doc cache' = do
         Nothing -> cb Nothing
 
     -- TODO: add retry
+    catchHttpError :: EvalT (Maybe a) -> EvalT (Maybe a)
     catchHttpError act = catch act \(e :: HttpException) -> do
         RWS.tell ["Network request failed: " <> T.pack (show e)]
         pure Nothing
 
+    update :: JiraID -> Jira.IssueData -> Maybe StoryStatus -> Maybe Float -> EvalT (Maybe JiraID)
     update jid issueData mStatus mPoints = do
         cache <- RWS.get
         let entry = CacheEntry issueData (statusName <$> mStatus) mPoints
         when (Map.lookup jid cache /= Just entry) do
             res <- lift $ runExceptT do
+                -- check cache
                 lift $ logger $ from jid <> ": check if cache is up-to-date"
                 issue <-
                     lift (Jira.getIssue client jid) >>= \case
                         Left e -> throwE $ "Couldn't read: " <> e
                         Right issue -> pure issue
-                case mStatus of
-                    Just status
-                        | statusName status /= issue.status -> do
-                            updateJira jid "status" $ Jira.doTransition client jid $ issueTransition status
-                    _ -> pure ()
-                case mPoints of
-                    Just points | Just points /= issue.score -> do
-                        updateJira jid "points" $ Jira.setIssueScore client jid points
-                    _ -> pure ()
 
-                unless (issueToData issue == issueData) do
+                -- check status
+                forM_ mStatus \status ->
+                    when (statusName status /= issue.status) do
+                        updateJira jid "status" $ Jira.doTransition client jid $ issueTransition status
+
+                -- check points
+                forM_ mPoints \points ->
+                    when (Just points /= issue.score) do
+                        updateJira jid "points" $ Jira.setIssueScore client jid points
+
+                -- check description/assignee
+                when (issueData /= issueToData issue) do
                     updateJira jid "description" $ Jira.updateIssue client jid issueData
 
             case res of
@@ -328,12 +333,14 @@ eval logger client project doc cache' = do
 
         pure (Just jid)
 
+    updateJira :: JiraID -> Text -> IO (Maybe Text) -> ExceptT Text IO ()
     updateJira jid name action = do
         lift $ logger $ from jid <> ": update " <> name
         lift action >>= \case
             Just err -> throwE $ name <> " update failed: " <> err
             Nothing -> pure ()
 
+    create :: Jira.IssueType -> Jira.IssueData -> EvalT (Maybe JiraID)
     create issueType issueData = do
         res <- lift do
             logger $ "Creating " <> T.pack (show issueType) <> " " <> issueData.summary
@@ -359,6 +366,22 @@ statusName = \case
     WIP -> "In Progress"
     Done -> "Closed"
 
+-- Note: don't forget to update the 'statusP' parser if the StoryStatus data type changes!
+statusShortName :: StoryStatus -> Text
+statusShortName = \case
+    Todo -> "todo"
+    WIP -> "wip"
+    Done -> "done"
+
+-- | Parse the story's status from the header attrs
+statusP :: Text -> Either Text StoryStatus
+statusP = \case
+    "todo" -> Right Todo
+    "wip" -> Right WIP
+    "done" -> Right Done
+    e -> Left $ "Unknown status: " <> e
+
+-- | Convert a remote issue to the local cache format to check if it needs to be updated.
 issueToData :: Jira.JiraIssue -> Jira.IssueData
 issueToData issue =
     Jira.IssueData
@@ -383,12 +406,7 @@ printerStory story =
 
 statusAttr :: Maybe StoryStatus -> [(Text, Text)]
 statusAttr = \case
-    Just status ->
-        let s = case status of
-                Todo -> "todo"
-                WIP -> "wip"
-                Done -> "done"
-         in [("status", s)]
+    Just status -> [("status", statusShortName status)]
     Nothing -> []
 
 assigneeAttr :: Maybe Text -> [(Text, Text)]
