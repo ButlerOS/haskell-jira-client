@@ -282,6 +282,9 @@ updateIssue client jid issueData = ensureNull <$> jiraRequest client ("issue/" <
         [ "summary" .= T.strip issueData.summary
         , "description" .= T.strip issueData.description
         ]
+            <> case issueData.assignee of
+                Just name -> ["assignee" .= object ["name" .= name]]
+                Nothing -> []
 
 -- | From https://www.haskellforall.com/2021/05/the-trick-to-avoid-deeply-nested-error.html
 orDie :: Maybe a -> b -> Either b a

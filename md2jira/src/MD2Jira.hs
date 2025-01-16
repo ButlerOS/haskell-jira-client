@@ -21,11 +21,13 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.Read qualified as T
 import Data.UnixTime (UnixTime (..), formatUnixTimeGMT, getUnixTime, parseUnixTimeGMT)
+import Data.Yaml qualified as YAML
 import Foreign.C (CTime)
 import GHC.Generics (Generic)
 import Jira (JiraID)
@@ -53,8 +55,12 @@ data Document = Document
     }
     deriving (Show)
 
-data DocumentConfig = EmptyConfig
-    deriving (Show)
+newtype DocumentConfig = DocumentConfig
+    { users :: Maybe (Map Text Text)
+    }
+    deriving (Show, Generic)
+instance FromJSON DocumentConfig
+instance ToJSON DocumentConfig
 
 data DocumentKind
     = FullBacklog
@@ -77,6 +83,7 @@ data Story = Story
     , title :: Text
     , status :: Maybe StoryStatus
     , description :: [P.Block]
+    , assignee :: Maybe Text
     , points :: Maybe Float
     , updated :: Maybe CTime
     }
@@ -84,14 +91,22 @@ data Story = Story
 
 -- | Parse a markdown
 parse :: Text -> Either Text Document
-parse inp = case P.runPure (P.readCommonMark opt inp) of
-    Left err -> Left $ P.renderError err
-    Right (P.Pandoc _meta blocks) -> do
-        -- span consumes everything until the first top level heading
-        let (intro, epicBlocks) = span (\case P.Header 1 _ _ -> False; _ -> True) blocks
-        epics <- parseEpics [] epicBlocks
-        let config = EmptyConfig
-        pure $ Document config intro epics
+parse inp = do
+    (config, inpBody) <-
+        if "---" `T.isPrefixOf` inp
+            then case span (/= "---") (T.lines (T.drop 3 inp)) of
+                (header, "---" : body) -> case YAML.decodeEither' (T.encodeUtf8 $ T.unlines header) of
+                    Left e -> Left $ "Header decoding error: " <> T.pack (show e)
+                    Right conf -> pure (conf, T.unlines body)
+                v -> Left $ "Couldn't find header:" <> T.pack (show v)
+            else pure (DocumentConfig Nothing, inp)
+    case P.runPure (P.readCommonMark opt inpBody) of
+        Left err -> Left $ P.renderError err
+        Right (P.Pandoc _ blocks) -> do
+            -- span consumes everything until the first top level heading
+            let (intro, epicBlocks) = span (\case P.Header 1 _ _ -> False; _ -> True) blocks
+            epics <- parseEpics [] epicBlocks
+            pure $ Document config intro epics
   where
     opt = P.def{P.readerExtensions = pandocExts}
 
@@ -102,8 +117,10 @@ printer doc = case P.runPure (P.writeCommonMark writerOpt pdoc) of
     Right txt -> addMeta txt
   where
     pdoc = P.Pandoc mempty (doc.intro <> P.walk inlineDanglingSpan body)
-    addMeta = case doc.config of
-        EmptyConfig -> id
+    addMeta
+        | doc.config.users == mempty = id
+        | otherwise = mappend ("---\n" <> T.decodeUtf8 (YAML.encode doc.config) <> "---\n\n")
+
     body = concatMap printerEpic doc.epics
     -- The writer ignores span attributes, so this convert them to a verbatim string.
     inlineDanglingSpan = \case
@@ -192,9 +209,10 @@ parseStories acc (x : rest) = case x of
         let points = pointsP attrs
             updated = dateP attrs
             title = P.stringify htitle
+            assignee = lookup "assignee" attrs
             -- span consumes everything until the next story or epic
             (description, remaining) = span (\case P.Header n _ _ | n < 3 -> False; _ -> True) rest
-        parseStories (Story{mJira, title, status, description, points, updated} : acc) remaining
+        parseStories (Story{mJira, title, status, description, assignee, points, updated} : acc) remaining
     -- A new epic or something else, stop the stories parser
     _ -> pure (reverse acc, x : rest)
 
@@ -258,15 +276,23 @@ eval logger client project doc cache' = do
         pure epic{stories, mJira}
 
     goStory :: Maybe JiraID -> Story -> EvalT Story
-    goStory mEpicID story = do
-        let info = Jira.IssueData story.title (toJira story.description) Nothing
+    goStory mEpicID story = withAssignee story \assignee -> do
+        let info = Jira.IssueData story.title (toJira story.description) assignee
         let issueType = maybe Jira.Story Jira.EpicStory mEpicID
         mJira <- catchHttpError $ case story.mJira of
             Nothing -> create issueType info
             Just jid -> update jid info story.status story.points
         pure $ case mJira of
             Nothing -> story
-            Just{} -> Story mJira story.title story.status story.description story.points story.updated
+            Just{} -> Story mJira story.title story.status story.description story.assignee story.points story.updated
+
+    withAssignee story cb = case story.assignee of
+        Just assignee -> case Map.lookup assignee (fromMaybe mempty doc.config.users) of
+            Just username -> cb $ Just username
+            Nothing -> do
+                RWS.tell ["Unknown user: " <> assignee <> ", it needs to be added to the front-matter users dict"]
+                pure story
+        Nothing -> cb Nothing
 
     -- TODO: add retry
     catchHttpError act = catch act \(e :: HttpException) -> do
@@ -353,7 +379,7 @@ printerStory :: Story -> [P.Block]
 printerStory story =
     P.Header 2 attr [P.Str story.title] : story.description
   where
-    attr = (jiraAttr story.mJira, [], pointsAttr story.points <> dateAttr story.updated <> statusAttr story.status)
+    attr = (jiraAttr story.mJira, [], pointsAttr story.points <> dateAttr story.updated <> statusAttr story.status <> assigneeAttr story.assignee)
 
 statusAttr :: Maybe StoryStatus -> [(Text, Text)]
 statusAttr = \case
@@ -363,6 +389,11 @@ statusAttr = \case
                 WIP -> "wip"
                 Done -> "done"
          in [("status", s)]
+    Nothing -> []
+
+assigneeAttr :: Maybe Text -> [(Text, Text)]
+assigneeAttr = \case
+    Just s -> [("assignee", s)]
     Nothing -> []
 
 pointsAttr :: Maybe Float -> [(Text, Text)]

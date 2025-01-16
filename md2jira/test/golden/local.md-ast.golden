@@ -1,5 +1,5 @@
 Document
-    { config = EmptyConfig
+    { config = DocumentConfig { users = Nothing }
     , intro =
         [ Para
             [ Str "This"
@@ -30,6 +30,7 @@ Document
                             , Str "is..."
                             ]
                         ]
+                    , assignee = Nothing
                     , points = Nothing
                     , updated = Nothing
                     }

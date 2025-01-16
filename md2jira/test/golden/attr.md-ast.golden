@@ -1,5 +1,5 @@
 Document
-    { config = EmptyConfig
+    { config = DocumentConfig { users = Nothing }
     , intro = []
     , epics =
         [ Epic
@@ -29,6 +29,7 @@ Document
                                 ]
                             ]
                         ]
+                    , assignee = Nothing
                     , points = Just 42.0
                     , updated = Just 1725667200
                     }

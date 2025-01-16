@@ -41,6 +41,7 @@ library
     , text
     , unix-time
     , witch
+    , yaml
 
 executable md2jira
   import:         common, executable
