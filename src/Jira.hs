@@ -122,6 +122,7 @@ data JiraIssue = JiraIssue
     , summary :: Text
     , score :: Maybe Float
     , assignee :: Maybe Text
+    , parent :: Maybe JiraID
     }
     deriving (Show, Generic, ToJSON)
 
@@ -135,6 +136,8 @@ decodeIssue client v = do
     updated <- (parseJiraTime =<< fields ^? key "updated" . _String) `pDie` "Can't find updated"
     let description = fields ^? key "description" . _String
     let assignee = fields ^? key "assignee" . key "name" . _String
+    -- TODO: make this configurable
+    let parent = JiraID <$> (fields ^? key "customfield_12311140" . _String)
     summary <- (fields ^? key "summary" . _String) `pDie` "Can't find summary"
     let score = do
             scoreMaybeNan <- fields ^? key client.issueScoreKey . _JSON
