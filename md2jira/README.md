@@ -106,7 +106,7 @@ users:
 ---
 # Develop Y {#PROJ-1}
 
-## Implement feature name {#PROJ-2 status=done points=5 assignee=tc}
+## Implement feature name {#PROJ-2 status=wip points=5 assignee=tc}
 
 The goal of this story is to ...:
 
