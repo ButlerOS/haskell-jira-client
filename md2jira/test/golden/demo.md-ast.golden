@@ -87,7 +87,21 @@ Document
                         , Para
                             [ Str "what"
                             , Space
-                            , Str "about:"
+                            , Str "about"
+                            , Note
+                                [ Para
+                                    [ Link
+                                        ( ""
+                                        , []
+                                        , []
+                                        )
+                                        [ Str "https://example.com" ]
+                                        ( "https://example.com"
+                                        , ""
+                                        )
+                                    ]
+                                ]
+                            , Str ":"
                             ]
                         , BulletList
                             [

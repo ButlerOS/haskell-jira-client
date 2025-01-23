@@ -21,9 +21,11 @@ The goal of this story is ...
 - [ ] do x {.n}
 - [ ] and y
 
-what about:
+what about[^1]:
 
 - [ ] z task
+
+[^1]: https://example.com
 
 ## Implement Z
 

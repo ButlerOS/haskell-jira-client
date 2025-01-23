@@ -143,10 +143,12 @@ pandocExts =
           P.Ext_backtick_code_blocks
         , -- Handle raw urls
           P.Ext_autolink_bare_uris
+        , -- Handle footnotes '[^1]'
+          P.Ext_footnotes
         ]
 
 writerOpt :: P.WriterOptions
-writerOpt = P.def{P.writerExtensions = pandocExts, P.writerWrapText = P.WrapPreserve}
+writerOpt = P.def{P.writerExtensions = pandocExts, P.writerWrapText = P.WrapPreserve, P.writerReferenceLinks = True, P.writerReferenceLocation = P.EndOfSection}
 
 -- | Parse a Jira-ID from the header id
 jiraP :: Text -> Either Text (Maybe JiraID)
