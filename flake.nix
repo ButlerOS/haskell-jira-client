@@ -25,8 +25,44 @@
         hsPkgs.doctest
       ];
 
+      container-name = "ghcr.io/butleros/haskell-jira-client";
+      container = pkgs.dockerTools.streamLayeredImage {
+        name = container-name;
+        tag = "latest";
+        created = "now";
+        config.Entrypoint = [ "${pkg-exe}/bin/md2jira" ];
+        config.WorkingDir = "/data";
+        config.Labels = {
+          "org.opencontainers.image.source" =
+            "https://github.com/ButlerOS/haskell-jira-client";
+        };
+      };
+
+      publish-container-release = pkgs.writeShellScriptBin "md2jira-release" ''
+        set -e
+        export PATH=$PATH:${pkgs.gzip}/bin:${pkgs.skopeo}/bin
+        IMAGE="docker://${container-name}"
+
+        echo "Logging to registry..."
+        echo $GH_TOKEN | skopeo login --username $GH_USERNAME --password-stdin ghcr.io
+
+        echo "Building and publishing the image..."
+        ${container} | gzip --fast | skopeo copy docker-archive:/dev/stdin $IMAGE:${pkg-exe.version}
+
+        echo "Tagging latest"
+        skopeo copy $IMAGE:${pkg-exe.version} $IMAGE:latest
+      '';
+
     in {
       packages."x86_64-linux".default = pkg-exe;
+      # To load the container locally:
+      # $(nix build .#container) | gzip --fast | skopeo copy docker-archive:/dev/stdin containers-storage:md2jira:latest
+      packages."x86_64-linux".container = container;
+      apps."x86_64-linux".publish-container-release = {
+        type = "app";
+        program = "${publish-container-release}/bin/md2jira-release";
+      };
+
       devShells."x86_64-linux".ci = hsPkgs.shellFor {
         packages = p: [ p.jira-client p.md2jira ];
         buildInputs = baseTools;
