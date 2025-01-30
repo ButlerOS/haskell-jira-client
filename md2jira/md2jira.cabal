@@ -1,6 +1,6 @@
 cabal-version: 2.2
 name: md2jira
-version:        0.1
+version:        0.1.1
 extra-source-files:
   test/golden/*.md
   test/golden/*.md-ast.golden
@@ -55,6 +55,7 @@ executable md2jira
     , bytestring
     , jira-client
     , http-client-tls
+    , with-utf8
 
 test-suite md2jira-test
   import: common, executable

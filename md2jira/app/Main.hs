@@ -8,13 +8,17 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Jira (newJiraClient)
 import MD2Jira (eval, parse, printer)
+import Main.Utf8 (withUtf8)
 import Network.HTTP.Client.TLS (newTlsManager)
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesPathExist, getXdgDirectory)
 import System.Environment (getArgs, getEnv)
 import System.Exit (exitFailure)
 
 main :: IO ()
-main =
+main = withUtf8 mainUtf
+
+mainUtf :: IO ()
+mainUtf =
     getArgs >>= \case
         ["--dry"] -> T.putStrLn . printer . either (error . show) id . parse =<< T.getContents
         ["--help"] -> die "usage: md2jira FILE"
