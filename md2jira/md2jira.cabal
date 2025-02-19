@@ -1,6 +1,9 @@
 cabal-version: 2.2
 name: md2jira
-version:        0.1.1
+version: 0.2
+extra-doc-files:
+  CHANGELOG.md
+  README.md
 extra-source-files:
   test/golden/*.md
   test/golden/*.md-ast.golden
