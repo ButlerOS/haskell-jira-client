@@ -21,7 +21,12 @@ Document
                                     , Span
                                         ( ""
                                         , [ "end" ]
-                                        , []
+                                        ,
+                                            [
+                                                ( "wrapper"
+                                                , "1"
+                                                )
+                                            ]
                                         ) [ Space ]
                                     , SoftBreak
                                     , Str "note"

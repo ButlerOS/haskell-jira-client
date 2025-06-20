@@ -15,7 +15,7 @@ output
 
 The goal of this story is ...
 
-- [ ] do x {.n}
+- [ ] do x
 - [ ] and y
 
 what about[^1]:
@@ -26,7 +26,7 @@ what about[^1]:
 
 ## Implement Z
 
-- [x] completed {.tc}
+- [x] completed
 
   > https://localhost
 
