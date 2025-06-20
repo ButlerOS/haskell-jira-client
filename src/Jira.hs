@@ -44,7 +44,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.Lens
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -134,6 +134,7 @@ data JiraIssue = JiraIssue
     , description :: Maybe Text
     , summary :: Text
     , score :: Maybe Float
+    , sprints :: [SprintName]
     , assignee :: Maybe Text
     , parent :: Maybe JiraID
     }
@@ -157,10 +158,24 @@ decodeIssue client v = do
             if isNaN scoreMaybeNan
                 then Nothing
                 else pure scoreMaybeNan
+    let sprints =
+            case fields ^? key client.issueSprintKey . _JSON of
+                Just [] -> []
+                Just xs -> mapMaybe decodeSprint xs
+                Nothing -> []
     pure JiraIssue{..}
   where
     pDie :: Maybe a -> Text -> Either Text a
     pDie a n = a `orDie` (n <> ": " <> decodeUtf8 (from $ encode v))
+
+{- | Decode the string encoding from the JIRA response
+>>> decodeSprint "com.atlassian.greenhopper.service.sprint.Sprint@367ee7a7[id=72845,rapidViewId=20300,state=CLOSED,name=Sprint 20250529,startDate=...]"
+Just "Sprint 20250529"
+-}
+decodeSprint :: Text -> Maybe SprintName
+decodeSprint txt = case T.splitOn "name=" txt of
+    _ : rest : _ -> Just $ SprintName $ T.takeWhile (/= ',') rest
+    _ -> Nothing
 
 getIssue :: JiraClient -> JiraID -> IO (Either Text JiraIssue)
 getIssue client jid = do
@@ -239,7 +254,7 @@ searchIssuesInfo :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSear
 searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
 
 searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
-searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String "assignee", String $ Key.toText client.issueScoreKey] client
+searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String "assignee", String $ Key.toText client.issueScoreKey, String $ Key.toText client.issueSprintKey] client
 
 newtype Transition = Transition Word
     deriving (Generic)

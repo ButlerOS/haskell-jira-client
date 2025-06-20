@@ -52,6 +52,7 @@ testGetIssue = testCase "getIssue" go
         issue.project @?= "PROJECT"
         issue.name @?= "PROJECT-1058"
         issue.score @?= Just 5.0
+        issue.sprints @?= [Jira.SprintName "Sprint 20250529"]
 
 main :: IO ()
 main = defaultMain jiraClientTests
