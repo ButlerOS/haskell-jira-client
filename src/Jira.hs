@@ -28,6 +28,13 @@ module Jira (
     -- * Update API
     Transition (..),
     doTransition,
+
+    -- * Agile API
+    Sprint (..),
+    SprintID (..),
+    SprintName (..),
+    Board (..),
+    getSprints,
 ) where
 
 import Control.Lens (toListOf, (^?))
@@ -75,9 +82,9 @@ httpJSONRequest manager request = do
 
 newtype HttpVerb = HttpVerb ByteString deriving newtype (IsString)
 
-jiraRequest :: JiraClient -> Text -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
-jiraRequest client path (HttpVerb verb) body = do
-    initRequest <- HTTP.parseUrlThrow (from $ client.baseUrl <> "/rest/api/2/" <> path)
+jiraBaseRequest :: Text -> JiraClient -> Text -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
+jiraBaseRequest base client path (HttpVerb verb) body = do
+    initRequest <- HTTP.parseUrlThrow (from $ client.baseUrl <> base <> path)
     let request =
             initRequest
                 { HTTP.requestHeaders =
@@ -88,6 +95,9 @@ jiraRequest client path (HttpVerb verb) body = do
                 , HTTP.requestBody = body
                 }
     httpJSONRequest client.manager request
+
+jiraRequest :: JiraClient -> Text -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
+jiraRequest = jiraBaseRequest "/rest/api/2/"
 
 issueRequest :: JiraClient -> JiraID -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
 issueRequest client (JiraID jid) = jiraRequest client ("issue/" <> jid)
@@ -299,3 +309,31 @@ doTransition client jid transition = ensureNull <$> jiraRequest client path "POS
   where
     path = "issue/" <> into @Text jid <> "/transitions"
     body = mkBody "transition" ["id" .= transition]
+
+data Sprint = Sprint
+    { name :: SprintName
+    , id :: SprintID
+    }
+    deriving (Eq, Show, Generic)
+instance ToJSON Sprint
+instance FromJSON Sprint
+
+newtype SprintName = SprintName Text
+    deriving newtype (Eq, Ord, Show, ToJSON, FromJSON)
+instance From SprintName Text where from (SprintName n) = n
+
+newtype SprintID = SprintID Int
+    deriving newtype (Eq, Ord, Show, ToJSON, FromJSON)
+
+newtype Board = Board Int
+    deriving newtype (Eq, Show)
+
+getSprints :: JiraClient -> Board -> IO (Either Text [Sprint])
+getSprints client (Board board) = decodeResp <$> jiraBaseRequest "/rest/agile/1.0/" client path "GET" mempty
+  where
+    path = "board/" <> from (show board) <> "/sprint?state=active"
+    decodeResp :: Either Text Value -> Either Text [Sprint]
+    decodeResp (Right v) = case v ^? key "values" . _JSON of
+        Just xs -> pure xs
+        Nothing -> Left $ "Missing values attr in: " <> decodeUtf8 (from $ encode v)
+    decodeResp (Left x) = Left x
