@@ -11,7 +11,7 @@ import MD2Jira (eval, parse, printer)
 import Main.Utf8 (withUtf8)
 import Network.HTTP.Client.TLS (newTlsManager)
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesPathExist, getXdgDirectory)
-import System.Environment (getArgs, getEnv)
+import System.Environment (getArgs, getEnv, lookupEnv)
 import System.Exit (exitFailure)
 
 main :: IO ()
@@ -34,11 +34,12 @@ mainUtf =
   where
     go doc = do
         project <- T.pack <$> getEnv "JIRA_PROJECT"
+        mBoard <- fmap Jira.Board <$> getEnv "JIRA_BOARD"
         cachePath <- getCachePath
         client <- mkClient
         cache <- loadCache cachePath
         let logger = T.putStrLn
-        (newDoc, newCache, errors) <- eval logger client project doc cache
+        (newDoc, newCache, errors) <- eval logger client project mBoard doc cache
         let updated = cache /= newCache
         when updated $ encodeFile cachePath newCache
         case errors of
