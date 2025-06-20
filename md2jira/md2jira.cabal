@@ -1,6 +1,6 @@
 cabal-version: 2.2
 name: md2jira
-version: 0.2
+version: 0.3
 extra-doc-files:
   CHANGELOG.md
   README.md
