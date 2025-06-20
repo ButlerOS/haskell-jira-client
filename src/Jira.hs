@@ -35,6 +35,7 @@ module Jira (
     SprintName (..),
     Board (..),
     getSprints,
+    setIssueSprint,
 ) where
 
 import Control.Lens (toListOf, (^?))
@@ -63,12 +64,14 @@ data JiraClient = JiraClient
     , baseUrl :: Text
     , token :: ByteString
     , issueScoreKey :: Key
+    , issueSprintKey :: Key
     }
 
-newJiraClient :: Text -> Maybe Key -> ByteString -> HTTP.Manager -> JiraClient
-newJiraClient url mIssueScoreKey token manager = JiraClient{..}
+newJiraClient :: Text -> Maybe Key -> Maybe Key -> ByteString -> HTTP.Manager -> JiraClient
+newJiraClient url mIssueScoreKey mIssueSprintKey token manager = JiraClient{..}
   where
     issueScoreKey = fromMaybe "customfield_12310243" mIssueScoreKey
+    issueSprintKey = fromMaybe "customfield_12310940" mIssueSprintKey
     baseUrl = T.dropWhileEnd (== '/') url
 
 httpJSONRequest :: HTTP.Manager -> HTTP.Request -> IO (Either Text Value)
@@ -174,6 +177,15 @@ setIssueScore client jid score = do
         Right _ -> Nothing
   where
     body = object ["fields" .= object [client.issueScoreKey .= score]]
+
+setIssueSprint :: JiraClient -> JiraID -> SprintID -> IO (Maybe Text)
+setIssueSprint client jid (SprintID sprint) = do
+    res <- issueRequest client jid "PUT" (HTTP.RequestBodyLBS (encode body))
+    pure $ case res of
+        Left e -> Just e
+        Right _ -> Nothing
+  where
+    body = object ["fields" .= object [client.issueSprintKey .= sprint]]
 
 newtype JQL = JQL Text deriving newtype (IsString, Show)
 

@@ -24,7 +24,7 @@ withMockClient cb = do
             "/rest/api/2/issue/" -> "{\"key\": \"TEST-42\"}"
             "/rest/api/2/issue/TEST-42" -> ""
             other -> error $ "Invalid path: " <> show other
-    withMockedManager app (cb . Jira.newJiraClient "http://localhost" Nothing "test-token")
+    withMockedManager app (cb . Jira.newJiraClient "http://localhost" Nothing Nothing "test-token")
 
 testCreateIssue :: TestTree
 testCreateIssue = testCase "createIssue" go
