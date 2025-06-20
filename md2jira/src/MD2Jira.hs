@@ -32,7 +32,7 @@ import Data.UnixTime (UnixTime (..), formatUnixTimeGMT, getUnixTime, parseUnixTi
 import Data.Yaml qualified as YAML
 import Foreign.C (CTime)
 import GHC.Generics (Generic)
-import Jira (JiraID, Sprint, SprintName)
+import Jira (JiraID, Sprint, SprintName (..))
 import Jira qualified
 import Network.HTTP.Client (HttpException)
 import Witch (from, into)
@@ -367,7 +367,7 @@ eval logger client project mBoard doc cache' = do
     trySprintUpdate :: JiraID -> SprintName -> EvalT ()
     trySprintUpdate jid sprintName = forM_ mBoard \board -> do
         sprints <- getSprints board
-        case find (\s -> s.name == sprintName) sprints of
+        case find (\s -> sprintMatch sprintName s.name) sprints of
             Nothing -> lift $ logger $ from sprintName <> ": unknown sprint!"
             Just sprint -> do
                 lift $ logger $ from jid <> ": updating sprint to " <> from sprintName
@@ -409,6 +409,9 @@ eval logger client project mBoard doc cache' = do
 
 data StoryStatus = Backlog | Todo | WIP | Review | Done
     deriving (Eq, Show, Generic)
+
+sprintMatch :: SprintName -> SprintName -> Bool
+sprintMatch (SprintName s1) (SprintName s2) = s1 == s2 || "Sprint " <> s1 == s2
 
 -- | TODO: fetch that from the project, it is in the `GET /rest/api/2/issue/NAME/transitions` endpoint
 issueTransition :: StoryStatus -> Jira.Transition
