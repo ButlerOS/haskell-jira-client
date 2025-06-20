@@ -70,7 +70,12 @@ Document
                                     , Span
                                         ( ""
                                         , [ "n" ]
-                                        , []
+                                        ,
+                                            [
+                                                ( "wrapper"
+                                                , "1"
+                                                )
+                                            ]
                                         ) [ Space ]
                                     ]
                                 ]
@@ -134,7 +139,12 @@ Document
                                     , Span
                                         ( ""
                                         , [ "tc" ]
-                                        , []
+                                        ,
+                                            [
+                                                ( "wrapper"
+                                                , "1"
+                                                )
+                                            ]
                                         ) [ Space ]
                                     ]
                                 , BlockQuote

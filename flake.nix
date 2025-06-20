@@ -1,27 +1,26 @@
 {
   inputs = {
-    hspkgs.url =
-      "github:podenv/hspkgs/7a46854f28ab9b99c51353c81d5967f1f6fd9a9b";
-    # "path:///srv/github.com/podenv/hspkgs";
+    nixpkgs.url =
+      "github:NixOS/nixpkgs/d3780c92e64472e8f9aa54f7bbb0dd4483b98303";
   };
-  outputs = { self, hspkgs }:
+  outputs = { self, nixpkgs }:
     let
-      pkgs = hspkgs.pkgs;
+      pkgs = import nixpkgs { system = "x86_64-linux"; };
 
       haskellExtend = hpFinal: hpPrev: {
         jira-client = hpPrev.callCabal2nix "jira-client" self { };
         md2jira = hpPrev.callCabal2nix "md2jira" "${self}/md2jira" { };
       };
-      hsPkgs = pkgs.hspkgs.extend haskellExtend;
+      hsPkgs = pkgs.haskellPackages.extend haskellExtend;
       pkg-exe = pkgs.haskell.lib.justStaticExecutables hsPkgs.md2jira;
 
       baseTools = with pkgs; [
-        cabal-gild
+        hsPkgs.cabal-gild
         hpack
         cabal-install
         hlint
-        fourmolu
-        weeder
+        hsPkgs.fourmolu
+        hsPkgs.weeder
         hsPkgs.doctest
       ];
 
