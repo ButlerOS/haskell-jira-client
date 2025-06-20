@@ -12,13 +12,15 @@ module MD2Jira (
     toJira,
 ) where
 
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Bifunctor (first, second)
 import Data.Char (isAsciiUpper)
+import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -30,7 +32,7 @@ import Data.UnixTime (UnixTime (..), formatUnixTimeGMT, getUnixTime, parseUnixTi
 import Data.Yaml qualified as YAML
 import Foreign.C (CTime)
 import GHC.Generics (Generic)
-import Jira (JiraID)
+import Jira (JiraID, Sprint, SprintName)
 import Jira qualified
 import Network.HTTP.Client (HttpException)
 import Witch (from, into)
@@ -84,6 +86,7 @@ data Story = Story
     , description :: [P.Block]
     , assignee :: Maybe Text
     , points :: Maybe Float
+    , sprint :: Maybe SprintName
     , updated :: Maybe CTime
     }
     deriving (Eq, Show, Generic)
@@ -175,6 +178,10 @@ pointsP xs = do
         Right (points, "") -> pure points
         _ -> Nothing
 
+-- | Parse the task's sprint from the header attrs
+sprintP :: [(Text, Text)] -> Maybe SprintName
+sprintP xs = Jira.SprintName <$> lookup "sprint" xs
+
 -- | Parse the epics from the document body, consuming every top heading
 parseEpics :: [Epic] -> [P.Block] -> Either Text [Epic]
 parseEpics acc [] =
@@ -205,12 +212,13 @@ parseStories acc (x : rest) = case x of
             Nothing -> pure Nothing
             Just n -> Just <$> statusP n
         let points = pointsP attrs
+            sprint = sprintP attrs
             updated = dateP attrs
             title = P.stringify htitle
             assignee = lookup "assignee" attrs
             -- span consumes everything until the next story or epic
             (description, remaining) = span (\case P.Header n _ _ | n < 3 -> False; _ -> True) rest
-        parseStories (Story{mJira, title, status, description, assignee, points, updated} : acc) remaining
+        parseStories (Story{mJira, title, status, description, assignee, points, sprint, updated} : acc) remaining
     -- A new epic or something else, stop the stories parser
     _ -> pure (reverse acc, x : rest)
 
@@ -239,6 +247,7 @@ data CacheEntry = CacheEntry
     { issue :: Jira.IssueData
     , status :: Maybe Text
     , score :: Maybe Float
+    , sprint :: Maybe SprintName
     }
     deriving (Eq, Show, Generic)
 instance ToJSON CacheEntry
@@ -249,7 +258,7 @@ instance FromJSON CacheEntry
 * Writer, an error log
 * State, the cache
 -}
-type EvalT a = RWS.RWST CTime [Text] Cache IO a
+type EvalT a = RWS.RWST CTime [Text] (Maybe [Sprint], Cache) IO a
 
 {- | This function is the core of md2jira:
 * Create epics/story without ID
@@ -257,11 +266,13 @@ type EvalT a = RWS.RWST CTime [Text] Cache IO a
 
 The function returns the updated issues, cache and a list of errors
 -}
-eval :: (Text -> IO ()) -> Jira.JiraClient -> Text -> Document -> Cache -> IO (Document, Cache, [Text])
-eval logger client project doc cache' = do
+eval :: (Text -> IO ()) -> Jira.JiraClient -> Text -> Maybe Jira.Board -> Document -> Cache -> IO (Document, Cache, [Text])
+eval logger client project mBoard doc cache' = do
     now <- getUnixTime
-    RWS.runRWST (setEpics <$> mapM goEpic doc.epics) now.utSeconds cache'
+    dropSprint <$> RWS.runRWST (setEpics <$> mapM goEpic doc.epics) now.utSeconds (Nothing, cache')
   where
+    -- Sprints are only used during the internal eval, we don't give them back to the caller
+    dropSprint (doc', (_, cache), err) = (doc', cache, err)
     setEpics epics = doc{epics}
     goEpic :: Epic -> EvalT Epic
     goEpic epic
@@ -270,7 +281,7 @@ eval logger client project doc cache' = do
             let epicInfo = Jira.IssueData epic.title (toJira epic.description) Nothing
             mJira <- catchHttpError $ case epic.mJira of
                 Nothing -> create Jira.Epic epicInfo
-                Just jid -> update jid epicInfo Nothing Nothing
+                Just jid -> update jid epicInfo Nothing Nothing Nothing
             case mJira of
                 Nothing -> pure epic
                 Just{} -> goEpicStory mJira epic
@@ -286,10 +297,10 @@ eval logger client project doc cache' = do
         let issueType = maybe Jira.Story Jira.EpicStory mEpicID
         mJira <- catchHttpError $ case story.mJira of
             Nothing -> create issueType info
-            Just jid -> update jid info story.status story.points
+            Just jid -> update jid info story.status story.points story.sprint
         pure $ case mJira of
             Nothing -> story
-            Just{} -> Story mJira story.title story.status story.description story.assignee story.points story.updated
+            Just{} -> Story mJira story.title story.status story.description story.assignee story.points story.sprint story.updated
 
     withAssignee :: Story -> (Maybe Text -> EvalT Story) -> EvalT Story
     withAssignee story cb = case story.assignee of
@@ -306,10 +317,10 @@ eval logger client project doc cache' = do
         RWS.tell ["Network request failed: " <> T.pack (show e)]
         pure Nothing
 
-    update :: JiraID -> Jira.IssueData -> Maybe StoryStatus -> Maybe Float -> EvalT (Maybe JiraID)
-    update jid issueData mStatus mPoints = do
-        cache <- RWS.get
-        let entry = CacheEntry issueData (statusName <$> mStatus) mPoints
+    update :: JiraID -> Jira.IssueData -> Maybe StoryStatus -> Maybe Float -> Maybe SprintName -> EvalT (Maybe JiraID)
+    update jid issueData mStatus mPoints mSprint = do
+        cache <- snd <$> RWS.get
+        let entry = CacheEntry issueData (statusName <$> mStatus) mPoints mSprint
         when (Map.lookup jid cache /= Just entry) do
             res <- lift $ runExceptT do
                 -- check cache
@@ -333,8 +344,14 @@ eval logger client project doc cache' = do
                 when (issueData /= issueToData issue) do
                     updateJira jid "description" $ Jira.updateIssue client jid issueData
 
+                pure issue
+
             case res of
-                Right () -> RWS.modify (Map.insert jid entry)
+                Right issue -> do
+                    -- check sprints
+                    forM_ mSprint \sprint ->
+                        unless (sprint `elem` issue.sprints) $ trySprintUpdate jid sprint
+                    RWS.modify $ second $ Map.insert jid entry
                 Left err -> RWS.tell ["Failed to update " <> from jid <> ": " <> err]
 
         pure (Just jid)
@@ -346,6 +363,37 @@ eval logger client project doc cache' = do
             Just err -> throwE $ name <> " update failed: " <> err
             Nothing -> pure ()
 
+    -- Set the sprint attribute when found in the board, otherwise just print a warning.
+    trySprintUpdate :: JiraID -> SprintName -> EvalT ()
+    trySprintUpdate jid sprintName = forM_ mBoard \board -> do
+        sprints <- getSprints board
+        case find (\s -> s.name == sprintName) sprints of
+            Nothing -> lift $ logger $ from sprintName <> ": unknown sprint!"
+            Just sprint -> do
+                lift $ logger $ from jid <> ": updating sprint to " <> from sprintName
+                lift (Jira.setIssueSprint client jid sprint.id) >>= \case
+                    Nothing -> pure ()
+                    Just err -> RWS.tell ["Failed to set sprint to " <> from (show sprint) <> ": " <> err]
+
+    -- Get the list of sprint from the board, and keep them in the internal state
+    getSprints :: Jira.Board -> EvalT [Jira.Sprint]
+    getSprints board = do
+        (mSprints, _) <- RWS.get
+        case mSprints of
+            -- Sprints were already looked up.
+            Just xs -> pure xs
+            Nothing -> do
+                eSprints <- lift do
+                    logger $ from (show board) <> ": fetching sprint names"
+                    Jira.getSprints client board
+                -- Report error if sprints can't be looked up.
+                sprints <- case eSprints of
+                    Left err -> RWS.tell ["Failed to get sprints " <> from (show board) <> ": " <> err] >> pure []
+                    Right xs -> pure xs
+                -- Store the result in the internal states
+                RWS.modify $ first $ const (Just sprints)
+                pure sprints
+
     create :: Jira.IssueType -> Jira.IssueData -> EvalT (Maybe JiraID)
     create issueType issueData = do
         res <- lift do
@@ -356,7 +404,7 @@ eval logger client project doc cache' = do
                 RWS.tell ["Failed to create " <> issueData.summary <> ": " <> err]
                 pure Nothing
             Right jid -> do
-                RWS.modify (Map.insert jid (CacheEntry issueData Nothing Nothing))
+                RWS.modify $ second $ Map.insert jid (CacheEntry issueData Nothing Nothing Nothing)
                 pure (Just jid)
 
 data StoryStatus = Backlog | Todo | WIP | Review | Done
@@ -419,7 +467,7 @@ printerStory :: Story -> [P.Block]
 printerStory story =
     P.Header 2 attr [P.Str story.title] : story.description
   where
-    attr = (jiraAttr story.mJira, [], pointsAttr story.points <> dateAttr story.updated <> statusAttr story.status <> assigneeAttr story.assignee)
+    attr = (jiraAttr story.mJira, [], pointsAttr story.points <> sprintAttr story.sprint <> dateAttr story.updated <> statusAttr story.status <> assigneeAttr story.assignee)
 
 statusAttr :: Maybe StoryStatus -> [(Text, Text)]
 statusAttr = \case
@@ -434,6 +482,11 @@ assigneeAttr = \case
 pointsAttr :: Maybe Float -> [(Text, Text)]
 pointsAttr = \case
     Just f -> [("points", T.pack (showPoints f))]
+    Nothing -> []
+
+sprintAttr :: Maybe SprintName -> [(Text, Text)]
+sprintAttr = \case
+    Just (Jira.SprintName s) -> [("sprint", s)]
     Nothing -> []
 
 dateAttr :: Maybe CTime -> [(Text, Text)]
