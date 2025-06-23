@@ -161,6 +161,6 @@ Feel free to report issues and propose new features. Run the `./bin/run-tests` a
 
 Roadmap:
 
-- [ ] Update the epic link when a story is moved to a different epic.
+- [x] Update the epic link when a story is moved to a different epic.
 - [ ] Mark a story has completed when all the tasks are closed.
 - [ ] Support sub-task, e.g. with `###` third heading.
