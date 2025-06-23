@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4
+
+- update epic link when a story is moved
+
 ## 0.3
 
 - added support for sprint

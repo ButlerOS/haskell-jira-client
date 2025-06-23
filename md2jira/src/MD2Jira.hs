@@ -248,6 +248,7 @@ data CacheEntry = CacheEntry
     , status :: Maybe Text
     , score :: Maybe Float
     , sprint :: Maybe SprintName
+    , parent :: Maybe JiraID
     }
     deriving (Eq, Show, Generic)
 instance ToJSON CacheEntry
@@ -281,7 +282,7 @@ eval logger client project mBoard doc cache' = do
             let epicInfo = Jira.IssueData epic.title (toJira epic.description) Nothing
             mJira <- catchHttpError $ case epic.mJira of
                 Nothing -> create Jira.Epic epicInfo
-                Just jid -> update jid epicInfo Nothing Nothing Nothing
+                Just jid -> update jid epicInfo Nothing Nothing Nothing Nothing
             case mJira of
                 Nothing -> pure epic
                 Just{} -> goEpicStory mJira epic
@@ -297,7 +298,7 @@ eval logger client project mBoard doc cache' = do
         let issueType = maybe Jira.Story Jira.EpicStory mEpicID
         mJira <- catchHttpError $ case story.mJira of
             Nothing -> create issueType info
-            Just jid -> update jid info story.status story.points story.sprint
+            Just jid -> update jid info story.status story.points story.sprint mEpicID
         pure $ case mJira of
             Nothing -> story
             Just{} -> Story mJira story.title story.status story.description story.assignee story.points story.sprint story.updated
@@ -317,10 +318,10 @@ eval logger client project mBoard doc cache' = do
         RWS.tell ["Network request failed: " <> T.pack (show e)]
         pure Nothing
 
-    update :: JiraID -> Jira.IssueData -> Maybe StoryStatus -> Maybe Float -> Maybe SprintName -> EvalT (Maybe JiraID)
-    update jid issueData mStatus mPoints mSprint = do
+    update :: JiraID -> Jira.IssueData -> Maybe StoryStatus -> Maybe Float -> Maybe SprintName -> Maybe JiraID -> EvalT (Maybe JiraID)
+    update jid issueData mStatus mPoints mSprint mParent = do
         cache <- snd <$> RWS.get
-        let entry = CacheEntry issueData (statusName <$> mStatus) mPoints mSprint
+        let entry = CacheEntry issueData (statusName <$> mStatus) mPoints mSprint mParent
         when (Map.lookup jid cache /= Just entry) do
             res <- lift $ runExceptT do
                 -- check cache
@@ -343,6 +344,11 @@ eval logger client project mBoard doc cache' = do
                 -- check description/assignee
                 when (issueData /= issueToData issue) do
                     updateJira jid "description" $ Jira.updateIssue client jid issueData
+
+                -- check parent
+                forM_ mParent \parent ->
+                    when (Just parent /= issue.parent) do
+                        updateJira jid "parent" $ Jira.setIssueParent client jid parent
 
                 pure issue
 
@@ -399,12 +405,15 @@ eval logger client project mBoard doc cache' = do
         res <- lift do
             logger $ "Creating " <> T.pack (show issueType) <> " " <> issueData.summary
             Jira.createIssue client project issueType issueData
+        let mParent = case issueType of
+                Jira.EpicStory jid -> Just jid
+                _ -> Nothing
         case res of
             Left err -> do
                 RWS.tell ["Failed to create " <> issueData.summary <> ": " <> err]
                 pure Nothing
             Right jid -> do
-                RWS.modify $ second $ Map.insert jid (CacheEntry issueData Nothing Nothing Nothing)
+                RWS.modify $ second $ Map.insert jid (CacheEntry issueData Nothing Nothing Nothing mParent)
                 pure (Just jid)
 
 data StoryStatus = Backlog | Todo | WIP | Review | Done

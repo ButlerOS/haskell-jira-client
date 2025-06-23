@@ -6,6 +6,7 @@ module Jira (
     -- * Issue API
     getIssue,
     setIssueScore,
+    setIssueParent,
     JiraID,
     mkJiraID,
     JiraIssue (..),
@@ -192,6 +193,15 @@ setIssueScore client jid score = do
         Right _ -> Nothing
   where
     body = object ["fields" .= object [client.issueScoreKey .= score]]
+
+setIssueParent :: JiraClient -> JiraID -> JiraID -> IO (Maybe Text)
+setIssueParent client jid parent = do
+    res <- issueRequest client jid "PUT" (HTTP.RequestBodyLBS (encode body))
+    pure $ case res of
+        Left e -> Just e
+        Right _ -> Nothing
+  where
+    body = object ["fields" .= object ["customfield_12311140" .= into @Text parent]]
 
 setIssueSprint :: JiraClient -> JiraID -> SprintID -> IO (Maybe Text)
 setIssueSprint client jid (SprintID sprint) = do
