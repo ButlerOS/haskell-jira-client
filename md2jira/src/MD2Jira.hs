@@ -356,7 +356,7 @@ eval logger client project mBoard doc cache' = do
                 Right issue -> do
                     -- check sprints
                     forM_ mSprint \sprint ->
-                        unless (sprint `elem` issue.sprints) $ trySprintUpdate jid sprint
+                        unless (any (sprintMatch sprint) issue.sprints) $ trySprintUpdate jid sprint
                     RWS.modify $ second $ Map.insert jid entry
                 Left err -> RWS.tell ["Failed to update " <> from jid <> ": " <> err]
 
