@@ -1,5 +1,6 @@
 Document
-    { config = DocumentConfig { users = Nothing }
+    { attrs = Null
+    , config = DocumentConfig { users = Nothing }
     , intro = []
     , epics =
         [ Epic
