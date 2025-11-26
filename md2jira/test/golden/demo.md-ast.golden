@@ -1,5 +1,13 @@
 Document
-    { config = DocumentConfig { users = Nothing }
+    { attrs = Object
+        ( fromList
+            [
+                ( "title"
+                , String "Team backlog"
+                )
+            ]
+        )
+    , config = DocumentConfig { users = Nothing }
     , intro =
         [ Para
             [ Str "Document"

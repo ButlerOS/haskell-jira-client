@@ -1,5 +1,13 @@
 Document
-    { config = DocumentConfig { users = Nothing }
+    { attrs = Object
+        ( fromList
+            [
+                ( "assigned"
+                , String "user@corp"
+                )
+            ]
+        )
+    , config = DocumentConfig { users = Nothing }
     , intro =
         [ Para
             [ Str "This"

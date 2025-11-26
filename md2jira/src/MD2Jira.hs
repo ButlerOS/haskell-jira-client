@@ -17,7 +17,8 @@ import Control.Monad.Catch (catch)
 import Control.Monad.RWS.Strict qualified as RWS
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON, Value (Null))
+import Data.Aeson qualified as Aeson
 import Data.Bifunctor (first, second)
 import Data.Char (isAsciiUpper)
 import Data.List (find)
@@ -51,8 +52,9 @@ import Text.Pandoc.Walk qualified as P (walk)
 import Text.Pandoc.Writers qualified as P
 
 data Document = Document
-    { config :: DocumentConfig
+    { attrs :: Value
     -- ^ From the Pandoc Meta
+    , config :: DocumentConfig
     , intro :: [P.Block]
     -- ^ Any content before the first heading
     , epics :: [Epic]
@@ -95,14 +97,17 @@ data Story = Story
 parse :: Text -> Either Text Document
 parse inp = do
     (inpBody, mConfig) <- parseFrontMatter inp
-    let config = fromMaybe (DocumentConfig mempty) mConfig
+    let attrs = fromMaybe Null mConfig
     case P.runPure (P.readCommonMark opt inpBody) of
         Left err -> Left $ P.renderError err
         Right (P.Pandoc _ blocks) -> do
             -- span consumes everything until the first top level heading
             let (intro, epicBlocks) = span (\case P.Header 1 _ _ -> False; _ -> True) blocks
             epics <- parseEpics [] epicBlocks
-            pure $ Document config intro epics
+            let config = case Aeson.fromJSON attrs of
+                    Aeson.Error _ -> DocumentConfig mempty
+                    Aeson.Success c -> c
+            pure $ Document attrs config intro epics
   where
     opt = P.def{P.readerExtensions = pandocExts}
 
@@ -124,8 +129,8 @@ printer doc = case P.runPure (P.writeCommonMark writerOpt pdoc) of
   where
     pdoc = P.Pandoc mempty (doc.intro <> P.walk inlineDanglingSpan body)
     addFrontMatter
-        | doc.config.users == mempty = id
-        | otherwise = mappend ("---\n" <> T.decodeUtf8 (YAML.encode doc.config) <> "---\n\n")
+        | doc.attrs == Null = id
+        | otherwise = mappend ("---\n" <> T.decodeUtf8 (YAML.encode doc.attrs) <> "---\n\n")
 
     body = concatMap printerEpic doc.epics
     -- The writer ignores span attributes, so this convert them to a verbatim string.
