@@ -1,12 +1,14 @@
 module Jira (
     -- * The client
     newJiraClient,
+    newJiraClientFromEnv,
     JiraClient,
 
     -- * Issue API
     getIssue,
     setIssueScore,
     setIssueParent,
+    updateIssueFields,
     JiraID,
     mkJiraID,
     JiraIssue (..),
@@ -55,7 +57,9 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import GHC.Exts (fromList)
 import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified
 import Numeric.Natural (Natural)
+import System.Environment qualified
 import Witch (From, from, into)
 
 -- Check api doc at:
@@ -74,6 +78,9 @@ newJiraClient url mIssueScoreKey mIssueSprintKey token manager = JiraClient{..}
     issueScoreKey = fromMaybe "customfield_12310243" mIssueScoreKey
     issueSprintKey = fromMaybe "customfield_12310940" mIssueSprintKey
     baseUrl = T.dropWhileEnd (== '/') url
+
+newJiraClientFromEnv :: Text -> IO JiraClient
+newJiraClientFromEnv url = newJiraClient url Nothing Nothing <$> (maybe (error "needToken") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_TOKEN") <*> Network.HTTP.Client.TLS.newTlsManager
 
 httpJSONRequest :: HTTP.Manager -> HTTP.Request -> IO (Either Text Value)
 httpJSONRequest manager request = do
@@ -185,14 +192,18 @@ getIssue client jid = do
         Left e -> Left (from jid <> ": " <> from e)
         Right x -> decodeIssue client x
 
-setIssueScore :: JiraClient -> JiraID -> Float -> IO (Maybe Text)
-setIssueScore client jid score = do
+updateIssueFields :: JiraClient -> JiraID -> [Pair] -> IO (Maybe Text)
+updateIssueFields client jid fields = do
     res <- issueRequest client jid "PUT" (HTTP.RequestBodyLBS (encode body))
     pure $ case res of
         Left e -> Just e
         Right _ -> Nothing
   where
-    body = object ["fields" .= object [client.issueScoreKey .= score]]
+    body = object ["fields" .= object fields]
+
+-- Deprecated, use updateIssueFields
+setIssueScore :: JiraClient -> JiraID -> Float -> IO (Maybe Text)
+setIssueScore client jid score = updateIssueFields client jid [client.issueScoreKey .= score]
 
 setIssueParent :: JiraClient -> JiraID -> JiraID -> IO (Maybe Text)
 setIssueParent client jid parent = do

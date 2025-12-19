@@ -63,12 +63,18 @@ library
     , base <5
     , bytestring
     , http-client
+    , http-client-tls
     , lens
     , lens-aeson
     , text
     , time
     , witch
   default-language: GHC2021
+
+executable jira-epic-attacher
+  main-is: JiraEpicAttacher.hs
+  hs-source-dirs: app
+  build-depends: jira-client, base, http-client-tls, text, witch, aeson, http-client
 
 test-suite jira-spec
   type: exitcode-stdio-1.0
