@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5
+
+- switch to basic auth
+
 ## 0.4.2
 
 - support arbitrary attribute in the frontmatter
