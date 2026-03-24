@@ -68,19 +68,24 @@ data JiraClient = JiraClient
     { manager :: HTTP.Manager
     , baseUrl :: Text
     , token :: ByteString
+    , user :: ByteString
     , issueScoreKey :: Key
     , issueSprintKey :: Key
     }
 
-newJiraClient :: Text -> Maybe Key -> Maybe Key -> ByteString -> HTTP.Manager -> JiraClient
-newJiraClient url mIssueScoreKey mIssueSprintKey token manager = JiraClient{..}
+newJiraClient :: Text -> Maybe Key -> Maybe Key -> ByteString -> ByteString -> HTTP.Manager -> JiraClient
+newJiraClient url mIssueScoreKey mIssueSprintKey user token manager = JiraClient{..}
   where
-    issueScoreKey = fromMaybe "customfield_12310243" mIssueScoreKey
+    issueScoreKey = fromMaybe "customfield_10977" mIssueScoreKey
     issueSprintKey = fromMaybe "customfield_12310940" mIssueSprintKey
     baseUrl = T.dropWhileEnd (== '/') url
 
 newJiraClientFromEnv :: Text -> IO JiraClient
-newJiraClientFromEnv url = newJiraClient url Nothing Nothing <$> (maybe (error "needToken") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_TOKEN") <*> Network.HTTP.Client.TLS.newTlsManager
+newJiraClientFromEnv url =
+    newJiraClient url Nothing Nothing
+        <$> (maybe (error "needToken") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_TOKEN")
+        <*> (maybe (error "needUser") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_USER")
+        <*> Network.HTTP.Client.TLS.newTlsManager
 
 httpJSONRequest :: HTTP.Manager -> HTTP.Request -> IO (Either Text Value)
 httpJSONRequest manager request = do
@@ -98,14 +103,11 @@ jiraBaseRequest base client path (HttpVerb verb) body = do
     initRequest <- HTTP.parseUrlThrow (from $ client.baseUrl <> base <> path)
     let request =
             initRequest
-                { HTTP.requestHeaders =
-                    [ ("Content-Type", "application/json")
-                    , ("Authorization", "Bearer " <> client.token)
-                    ]
+                { HTTP.requestHeaders = [("Content-Type", "application/json")]
                 , HTTP.method = verb
                 , HTTP.requestBody = body
                 }
-    httpJSONRequest client.manager request
+    httpJSONRequest client.manager $ HTTP.applyBasicAuth client.user client.token request
 
 jiraRequest :: JiraClient -> Text -> HttpVerb -> HTTP.RequestBody -> IO (Either Text Value)
 jiraRequest = jiraBaseRequest "/rest/api/2/"

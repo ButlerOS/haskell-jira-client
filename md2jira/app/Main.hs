@@ -52,8 +52,9 @@ mainUtf =
 
     mkClient = do
         url <- T.pack <$> getEnv "JIRA_URL"
+        user <- BS.pack <$> getEnv "JIRA_USER"
         token <- BS.pack <$> getEnv "JIRA_TOKEN"
-        Jira.newJiraClient url Nothing Nothing token <$> newTlsManager
+        Jira.newJiraClient url Nothing Nothing user token <$> newTlsManager
 
     loadCache path =
         doesPathExist path >>= \case

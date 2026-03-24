@@ -51,6 +51,7 @@ dependencies:
   - lens
   - lens-aeson
   - http-client
+  - http-client-tls
   - bytestring
   - text
   - time

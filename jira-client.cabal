@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.1.
+-- This file has been generated from package.yaml by hpack version 0.36.1.
 --
 -- see: https://github.com/sol/hpack
 
@@ -71,11 +71,6 @@ library
     , witch
   default-language: GHC2021
 
-executable jira-epic-attacher
-  main-is: JiraEpicAttacher.hs
-  hs-source-dirs: app
-  build-depends: jira-client, base, http-client-tls, text, witch, aeson, http-client
-
 test-suite jira-spec
   type: exitcode-stdio-1.0
   main-is: Spec.hs
@@ -112,6 +107,7 @@ test-suite jira-spec
     , base <5
     , bytestring
     , http-client
+    , http-client-tls
     , http-mock
     , http-types
     , jira-client
