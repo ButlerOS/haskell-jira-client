@@ -73,8 +73,47 @@ library
 
 executable jira-epic-attacher
   main-is: JiraEpicAttacher.hs
-  hs-source-dirs: app
-  build-depends: jira-client, base, http-client-tls, text, witch, aeson, http-client
+  other-modules:
+      Paths_jira_client
+  hs-source-dirs:
+      app
+  default-extensions:
+      OverloadedStrings
+      NamedFieldPuns
+      ImportQualifiedPost
+      LambdaCase
+      ViewPatterns
+      MultiWayIf
+      QuasiQuotes
+      DeriveGeneric
+      DerivingVia
+      GeneralizedNewtypeDeriving
+      DuplicateRecordFields
+      RecordWildCards
+      OverloadedStrings
+      OverloadedRecordDot
+      TemplateHaskell
+      DataKinds
+      DeriveAnyClass
+      TypeFamilies
+      BlockArguments
+      OverloadedLabels
+      DerivingStrategies
+      PartialTypeSignatures
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns -Wno-partial-type-signatures -fwrite-ide-info -Wno-missing-methods -main-is JiraEpicAttacher.main
+  build-depends:
+      aeson
+    , base
+    , bytestring
+    , http-client
+    , http-client-tls
+    , jira-client
+    , lens
+    , lens-aeson
+    , text
+    , time
+    , witch
+  default-language: GHC2021
 
 test-suite jira-spec
   type: exitcode-stdio-1.0

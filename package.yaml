@@ -71,3 +71,12 @@ tests:
       - wai
       - http-types
       - http-mock
+
+executables:
+  jira-epic-attacher:
+    main: JiraEpicAttacher.main
+    source-dirs: app
+    dependencies:
+      - jira-client
+      - base
+      - text

@@ -3,14 +3,11 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Main where
+module JiraEpicAttacher where
 
 import Data.Aeson
 import Data.Text (Text)
-import Data.Text.Encoding
 import Jira
-import Network.HTTP.Client as HTTP
-import Network.HTTP.Client.TLS
 import System.Environment
 import Witch
 
