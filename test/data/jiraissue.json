@@ -40,7 +40,7 @@
     "components": [],
     "description": "Issue description...",
     "summary": "Issue summary",
-    "customfield_12310243": 5.0,
+    "customfield_10977": 5.0,
     "customfield_12310940": [
       "com.atlassian.greenhopper.service.sprint.Sprint@367ee7a7[id=72845,rapidViewId=20300,state=CLOSED,name=Sprint 20250529,startDate=...]"
     ],
