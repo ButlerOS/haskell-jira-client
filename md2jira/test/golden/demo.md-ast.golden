@@ -130,7 +130,6 @@ Document
                         ]
                     , assignee = Nothing
                     , points = Nothing
-                    , sprint = Nothing
                     , updated = Nothing
                     }
                 , Story
@@ -171,7 +170,6 @@ Document
                         ]
                     , assignee = Nothing
                     , points = Nothing
-                    , sprint = Nothing
                     , updated = Nothing
                     }
                 ]
