@@ -24,7 +24,7 @@ withMockClient cb = do
             "/rest/api/2/issue/" -> "{\"key\": \"TEST-42\"}"
             "/rest/api/2/issue/TEST-42" -> ""
             other -> error $ "Invalid path: " <> show other
-    withMockedManager app (cb . Jira.newJiraClient "http://localhost" Nothing Nothing "test-user" "test-token")
+    withMockedManager app (cb . Jira.newJiraClient "http://localhost" Nothing "test-user" "test-token")
 
 testCreateIssue :: TestTree
 testCreateIssue = testCase "createIssue" go
@@ -52,7 +52,6 @@ testGetIssue = testCase "getIssue" go
         issue.project @?= "PROJECT"
         issue.name @?= "PROJECT-1058"
         issue.score @?= Just 5.0
-        issue.sprints @?= [Jira.SprintName "Sprint 20250529"]
 
 main :: IO ()
 main = defaultMain jiraClientTests
