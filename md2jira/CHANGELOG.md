@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6
+
+- fix parent link
+- remove agile api
+
 ## 0.5
 
 - switch to basic auth
