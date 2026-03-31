@@ -83,8 +83,8 @@ newJiraClient url mIssueScoreKey mIssueSprintKey user token manager = JiraClient
 newJiraClientFromEnv :: Text -> IO JiraClient
 newJiraClientFromEnv url =
     newJiraClient url Nothing Nothing
-        <$> (maybe (error "needToken") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_TOKEN")
-        <*> (maybe (error "needUser") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_USER")
+        <$> (maybe (error "needUser") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_USER")
+        <*> (maybe (error "needToken") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_TOKEN")
         <*> Network.HTTP.Client.TLS.newTlsManager
 
 httpJSONRequest :: HTTP.Manager -> HTTP.Request -> IO (Either Text Value)
@@ -161,7 +161,7 @@ decodeIssue client v = do
     let description = fields ^? key "description" . _String
     let assignee = fields ^? key "assignee" . key "name" . _String
     -- TODO: make this configurable
-    let parent = JiraID <$> (fields ^? key "customfield_12311140" . _String)
+    let parent = JiraID <$> (fields ^? key "parent" . key "key" . _String)
     summary <- (fields ^? key "summary" . _String) `pDie` "Can't find summary"
     let score = do
             scoreMaybeNan <- fields ^? key client.issueScoreKey . _JSON
@@ -214,7 +214,7 @@ setIssueParent client jid parent = do
         Left e -> Just e
         Right _ -> Nothing
   where
-    body = object ["fields" .= object ["customfield_12311140" .= into @Text parent]]
+    body = object ["fields" .= object ["parent" .= object ["key" .= into @Text parent]]]
 
 setIssueSprint :: JiraClient -> JiraID -> SprintID -> IO (Maybe Text)
 setIssueSprint client jid (SprintID sprint) = do
@@ -327,8 +327,7 @@ createIssue client project issueType issueData = decodeJiraIDResp <$> jiraReques
             <> case issueType of
                 SubTask jid -> ["parent" .= object ["key" .= into @Text jid]]
                 -- TODO: support custom config
-                EpicStory jid -> ["customfield_12311140" .= into @Text jid]
-                Epic -> ["customfield_12311141" .= issueData.summary]
+                EpicStory jid -> ["customfield_10014" .= into @Text jid]
                 _ -> []
 
 ensureNull :: Either Text Value -> Maybe Text
