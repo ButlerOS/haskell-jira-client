@@ -31,14 +31,6 @@ module Jira (
     -- * Update API
     Transition (..),
     doTransition,
-
-    -- * Agile API
-    Sprint (..),
-    SprintID (..),
-    SprintName (..),
-    Board (..),
-    getSprints,
-    setIssueSprint,
 ) where
 
 import Control.Lens (toListOf, (^?))
@@ -47,7 +39,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.Lens
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -70,19 +62,17 @@ data JiraClient = JiraClient
     , token :: ByteString
     , user :: ByteString
     , issueScoreKey :: Key
-    , issueSprintKey :: Key
     }
 
-newJiraClient :: Text -> Maybe Key -> Maybe Key -> ByteString -> ByteString -> HTTP.Manager -> JiraClient
-newJiraClient url mIssueScoreKey mIssueSprintKey user token manager = JiraClient{..}
+newJiraClient :: Text -> Maybe Key -> ByteString -> ByteString -> HTTP.Manager -> JiraClient
+newJiraClient url mIssueScoreKey user token manager = JiraClient{..}
   where
     issueScoreKey = fromMaybe "customfield_10977" mIssueScoreKey
-    issueSprintKey = fromMaybe "customfield_12310940" mIssueSprintKey
     baseUrl = T.dropWhileEnd (== '/') url
 
 newJiraClientFromEnv :: Text -> IO JiraClient
 newJiraClientFromEnv url =
-    newJiraClient url Nothing Nothing
+    newJiraClient url Nothing
         <$> (maybe (error "needUser") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_USER")
         <*> (maybe (error "needToken") (encodeUtf8 . from) <$> System.Environment.lookupEnv "JIRA_TOKEN")
         <*> Network.HTTP.Client.TLS.newTlsManager
@@ -144,7 +134,6 @@ data JiraIssue = JiraIssue
     , description :: Maybe Text
     , summary :: Text
     , score :: Maybe Float
-    , sprints :: [SprintName]
     , assignee :: Maybe Text
     , parent :: Maybe JiraID
     }
@@ -168,24 +157,10 @@ decodeIssue client v = do
             if isNaN scoreMaybeNan
                 then Nothing
                 else pure scoreMaybeNan
-    let sprints =
-            case fields ^? key client.issueSprintKey . _JSON of
-                Just [] -> []
-                Just xs -> mapMaybe decodeSprint xs
-                Nothing -> []
     pure JiraIssue{..}
   where
     pDie :: Maybe a -> Text -> Either Text a
     pDie a n = a `orDie` (n <> ": " <> decodeUtf8 (from $ encode v))
-
-{- | Decode the string encoding from the JIRA response
->>> decodeSprint "com.atlassian.greenhopper.service.sprint.Sprint@367ee7a7[id=72845,rapidViewId=20300,state=CLOSED,name=Sprint 20250529,startDate=...]"
-Just "Sprint 20250529"
--}
-decodeSprint :: Text -> Maybe SprintName
-decodeSprint txt = case T.splitOn "name=" txt of
-    _ : rest : _ -> Just $ SprintName $ T.takeWhile (/= ',') rest
-    _ -> Nothing
 
 getIssue :: JiraClient -> JiraID -> IO (Either Text JiraIssue)
 getIssue client jid = do
@@ -215,15 +190,6 @@ setIssueParent client jid parent = do
         Right _ -> Nothing
   where
     body = object ["fields" .= object ["parent" .= object ["key" .= into @Text parent]]]
-
-setIssueSprint :: JiraClient -> JiraID -> SprintID -> IO (Maybe Text)
-setIssueSprint client jid (SprintID sprint) = do
-    res <- issueRequest client jid "PUT" (HTTP.RequestBodyLBS (encode body))
-    pure $ case res of
-        Left e -> Just e
-        Right _ -> Nothing
-  where
-    body = object ["fields" .= object [client.issueSprintKey .= sprint]]
 
 newtype JQL = JQL Text deriving newtype (IsString, Show)
 
@@ -277,7 +243,7 @@ searchIssuesInfo :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSear
 searchIssuesInfo = searchIssuesImpl decodeIssueInfo []
 
 searchIssues :: JiraClient -> JiraSearchRequest -> IO (Either Text (JiraSearchResult JiraIssue))
-searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String "assignee", String $ Key.toText client.issueScoreKey, String $ Key.toText client.issueSprintKey] client
+searchIssues client = searchIssuesImpl (decodeIssue client) [String "project", String "issuetype", String "description", String "summary", String "assignee", String $ Key.toText client.issueScoreKey] client
 
 newtype Transition = Transition Word
     deriving (Generic)
@@ -358,31 +324,3 @@ doTransition client jid transition = ensureNull <$> jiraRequest client path "POS
   where
     path = "issue/" <> into @Text jid <> "/transitions"
     body = mkBody "transition" ["id" .= transition]
-
-data Sprint = Sprint
-    { name :: SprintName
-    , id :: SprintID
-    }
-    deriving (Eq, Show, Generic)
-instance ToJSON Sprint
-instance FromJSON Sprint
-
-newtype SprintName = SprintName Text
-    deriving newtype (Eq, Ord, Show, ToJSON, FromJSON)
-instance From SprintName Text where from (SprintName n) = n
-
-newtype SprintID = SprintID Int
-    deriving newtype (Eq, Ord, Show, ToJSON, FromJSON)
-
-newtype Board = Board Int
-    deriving newtype (Eq, Show)
-
-getSprints :: JiraClient -> Board -> IO (Either Text [Sprint])
-getSprints client (Board board) = decodeResp <$> jiraBaseRequest "/rest/agile/1.0/" client path "GET" mempty
-  where
-    path = "board/" <> from (show board) <> "/sprint?state=active"
-    decodeResp :: Either Text Value -> Either Text [Sprint]
-    decodeResp (Right v) = case v ^? key "values" . _JSON of
-        Just xs -> pure xs
-        Nothing -> Left $ "Missing values attr in: " <> decodeUtf8 (from $ encode v)
-    decodeResp (Left x) = Left x
