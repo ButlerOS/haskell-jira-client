@@ -6,12 +6,12 @@ import Data.Aeson (eitherDecodeFileStrict, encodeFile)
 import Data.ByteString.Char8 qualified as BS
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import Jira (Board (..), newJiraClient)
+import Jira (newJiraClient)
 import MD2Jira (eval, parse, printer)
 import Main.Utf8 (withUtf8)
 import Network.HTTP.Client.TLS (newTlsManager)
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesPathExist, getXdgDirectory)
-import System.Environment (getArgs, getEnv, lookupEnv)
+import System.Environment (getArgs, getEnv)
 import System.Exit (exitFailure)
 
 main :: IO ()
@@ -34,12 +34,11 @@ mainUtf =
   where
     go doc updateDocument = do
         project <- T.pack <$> getEnv "JIRA_PROJECT"
-        mBoard <- fmap (Jira.Board . read) <$> lookupEnv "JIRA_BOARD"
         cachePath <- getCachePath
         client <- mkClient
         cache <- loadCache cachePath
         let logger = T.putStrLn
-        (newDoc, newCache, errors) <- eval logger client project mBoard doc cache
+        (newDoc, newCache, errors) <- eval logger client project doc cache
         let updated = cache /= newCache
         when updated do
             encodeFile cachePath newCache
@@ -54,7 +53,7 @@ mainUtf =
         url <- T.pack <$> getEnv "JIRA_URL"
         user <- BS.pack <$> getEnv "JIRA_USER"
         token <- BS.pack <$> getEnv "JIRA_TOKEN"
-        Jira.newJiraClient url Nothing Nothing user token <$> newTlsManager
+        Jira.newJiraClient url Nothing user token <$> newTlsManager
 
     loadCache path =
         doesPathExist path >>= \case
