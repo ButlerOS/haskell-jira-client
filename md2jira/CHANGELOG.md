@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7
+
+- remove the info header
+
 ## 0.6
 
 - fix parent link
